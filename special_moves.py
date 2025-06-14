@@ -120,7 +120,7 @@ class Toppuu(SpecialMove):
         return len(valid_pieces) > 0
     
     def _get_valid_pieces(self, board):
-        """横に空きマスがある駒のリストを返す（王を除く）"""
+        """横に空きマスがある駒のリストを返す（王を除く、二歩になる駒も除外）"""
         valid_pieces = []
         for row in range(9):
             for col in range(9):
@@ -129,10 +129,35 @@ class Toppuu(SpecialMove):
                 if piece and piece.name != "king":
                     # 左に空きマスがあるか確認
                     if col > 0 and board.grid[row][col-1] is None:
-                        valid_pieces.append((row, col, "left"))
+                        # 歩の場合、移動後に二歩にならないか確認
+                        if piece.name == "pawn" and not piece.is_promoted:
+                            # 左に移動した場合に同じ筋に自分の歩がないか確認
+                            has_pawn_in_same_column = False
+                            for r in range(9):
+                                if r != row and board.grid[r][col-1] and board.grid[r][col-1].name == "pawn" and \
+                                   board.grid[r][col-1].player == piece.player and not board.grid[r][col-1].is_promoted:
+                                    has_pawn_in_same_column = True
+                                    break
+                            if not has_pawn_in_same_column:
+                                valid_pieces.append((row, col, "left"))
+                        else:
+                            valid_pieces.append((row, col, "left"))
+                    
                     # 右に空きマスがあるか確認
                     if col < 8 and board.grid[row][col+1] is None:
-                        valid_pieces.append((row, col, "right"))
+                        # 歩の場合、移動後に二歩にならないか確認
+                        if piece.name == "pawn" and not piece.is_promoted:
+                            # 右に移動した場合に同じ筋に自分の歩がないか確認
+                            has_pawn_in_same_column = False
+                            for r in range(9):
+                                if r != row and board.grid[r][col+1] and board.grid[r][col+1].name == "pawn" and \
+                                   board.grid[r][col+1].player == piece.player and not board.grid[r][col+1].is_promoted:
+                                    has_pawn_in_same_column = True
+                                    break
+                            if not has_pawn_in_same_column:
+                                valid_pieces.append((row, col, "right"))
+                        else:
+                            valid_pieces.append((row, col, "right"))
         return valid_pieces
     
     def execute(self, board, player, target_pos=None):
