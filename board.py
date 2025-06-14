@@ -180,9 +180,12 @@ class Board:
             pygame.draw.rect(self.screen, (0, 0, 0), message_bg, 2)
             
             # 確認メッセージ
-            row, col = self.special_move_target
-            piece = self.grid[row][col]
-            message_text = f"この{piece.kanji}に「{self.special_move_active.name}」を使いますか？"
+            if self.special_move_active.name == "メンコ":
+                message_text = f"「{self.special_move_active.name}」を使用しますか？"
+            else:
+                row, col = self.special_move_target
+                piece = self.grid[row][col]
+                message_text = f"この{piece.kanji}に「{self.special_move_active.name}」を使いますか？"
             text = self.font.render(message_text, True, (0, 0, 0))
             text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 30))
             self.screen.blit(text, text_rect)
@@ -673,9 +676,16 @@ class Board:
         print("技選択をキャンセルしました")
     def confirm_special_move(self):
         """特殊技の適用を確定する"""
-        if self.special_move_active and self.special_move_target:
-            # 特殊技を適用
-            result = self.apply_special_move(self.special_move_active, self.special_move_target)
+        if self.special_move_active:
+            # メンコの場合は対象の駒を選択せずに直接適用
+            if self.special_move_active.name == "メンコ":
+                result = self.apply_special_move(self.special_move_active)
+            elif self.special_move_target:
+                # 対象を選択する技の場合
+                result = self.apply_special_move(self.special_move_active, self.special_move_target)
+            else:
+                result = False
+                
             # 確認状態をリセット
             self.special_move_confirm = False
             self.special_move_target = None
@@ -686,3 +696,7 @@ class Board:
         """特殊技の確認をキャンセルする"""
         self.special_move_confirm = False
         self.special_move_target = None
+        
+        # メンコの場合は特殊技選択もキャンセルする
+        if self.special_move_active and self.special_move_active.name == "メンコ":
+            self.special_move_active = None
