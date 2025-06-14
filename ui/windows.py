@@ -147,47 +147,47 @@ class SpecialMoveWindow:
             description = self.selected_move.description
             
             # 説明テキストの長さに応じて分割（最大3行）
-            if len(description) > 40:
+            if len(description) > 30:
                 # 1行目と2行目の分割位置を探す
-                split_pos1 = self._find_split_position(description, 0, 20)
+                split_pos1 = self._find_split_position(description, 0, 15)  # 文字数を減らす
                 line1 = description[:split_pos1]
                 
                 # 2行目と3行目の分割位置を探す
                 remaining = description[split_pos1:]
-                split_pos2 = self._find_split_position(remaining, 0, 20)
+                split_pos2 = self._find_split_position(remaining, 0, 15)  # 文字数を減らす
                 line2 = remaining[:split_pos2]
                 line3 = remaining[split_pos2:]
                 
                 # 1行目
                 desc_text1 = self.font.render(line1, True, (0, 0, 0))
-                desc_rect1 = desc_text1.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 25))
+                desc_rect1 = desc_text1.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 30))
                 surface.blit(desc_text1, desc_rect1)
                 
                 # 2行目
                 desc_text2 = self.font.render(line2, True, (0, 0, 0))
-                desc_rect2 = desc_text2.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 50))
+                desc_rect2 = desc_text2.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 60))
                 surface.blit(desc_text2, desc_rect2)
                 
                 # 3行目
                 desc_text3 = self.font.render(line3, True, (0, 0, 0))
-                desc_rect3 = desc_text3.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 75))
+                desc_rect3 = desc_text3.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 90))
                 surface.blit(desc_text3, desc_rect3)
                 
-            elif len(description) > 20:
+            elif len(description) > 18:
                 # 適切な分割位置を探す（スペースや句読点の位置）
-                split_pos = self._find_split_position(description, 10, 20)
+                split_pos = self._find_split_position(description, 10, 15)  # 文字数を減らす
                 
                 line1 = description[:split_pos]
                 line2 = description[split_pos:]
                 
                 # 1行目
                 desc_text1 = self.font.render(line1, True, (0, 0, 0))
-                desc_rect1 = desc_text1.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 35))
+                desc_rect1 = desc_text1.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 40))
                 surface.blit(desc_text1, desc_rect1)
                 
                 # 2行目
                 desc_text2 = self.font.render(line2, True, (0, 0, 0))
-                desc_rect2 = desc_text2.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 65))
+                desc_rect2 = desc_text2.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 80))
                 surface.blit(desc_text2, desc_rect2)
             else:
                 # 短い説明はそのまま中央に表示
