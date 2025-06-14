@@ -204,11 +204,101 @@ class Toppuu(SpecialMove):
         return True
 
 
+class HengeStaff(SpecialMove):
+    def __init__(self):
+        super().__init__(
+            "変化の杖",
+            "盤上の駒をランダムに1つ選び、別の駒に変化させる",
+            duration=0  # 即時効果なので持続ターンは0
+        )
+    
+    def can_use(self, board, player):
+        # 盤上に王以外の駒が1枚以上あるか確認
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name != "king":
+                    return True
+        return False
+    
+    def execute(self, board, player, target_pos=None):
+        # 盤上の王以外の駒をリストアップ
+        valid_pieces = []
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name != "king":
+                    valid_pieces.append((row, col))
+        
+        # 対象となる駒がない場合
+        if not valid_pieces:
+            print(f"{self.name}の効果が発動しましたが、対象となる駒がありませんでした。")
+            return True
+        
+        # ランダムに1枚選択
+        selected_pos = random.choice(valid_pieces)
+        row, col = selected_pos
+        original_piece = board.grid[row][col]
+        
+        # 変更可能な駒の種類（王と元の駒を除く）
+        piece_types = ["pawn", "lance", "knight", "silver", "gold", "bishop", "rook"]
+        if original_piece.name in piece_types:
+            piece_types.remove(original_piece.name)
+        
+        # 変更後の駒をランダムに決定
+        while True:
+            new_piece_type = random.choice(piece_types)
+            
+            # 歩の場合は二歩チェック
+            if new_piece_type == "pawn":
+                # 同じ筋に同じプレイヤーの歩があるかチェック
+                has_pawn_in_same_column = False
+                for r in range(9):
+                    if r != row and board.grid[r][col] and board.grid[r][col].name == "pawn" and \
+                       board.grid[r][col].player == original_piece.player and not board.grid[r][col].is_promoted:
+                        has_pawn_in_same_column = True
+                        break
+                
+                if has_pawn_in_same_column:
+                    # 二歩になる場合は別の駒を選択
+                    continue
+            
+            # 問題なければループを抜ける
+            break
+        
+        # 駒の漢字表記
+        kanji_map = {
+            "pawn": "歩",
+            "lance": "香",
+            "knight": "桂",
+            "silver": "銀",
+            "gold": "金",
+            "bishop": "角",
+            "rook": "飛"
+        }
+        
+        # 元の駒の情報を保存
+        original_player = original_piece.player
+        original_name = original_piece.name
+        original_kanji = original_piece.kanji
+        
+        # 新しい駒を作成して配置
+        from pieces import Piece
+        new_piece = Piece(new_piece_type, kanji_map[new_piece_type], is_promoted=False, player=original_player)
+        board.grid[row][col] = new_piece
+        
+        # 効果メッセージ
+        print(f"{self.name}の効果が発動！ 位置 ({row+1},{col+1}) の {original_kanji} が {new_piece.kanji} に変化しました！")
+        
+        return True
+
+
 # 利用可能な技のリスト
 AVAILABLE_SPECIAL_MOVES = [
     Technique1(),
     Menko(),  # メンコ技を追加
     Toppuu(),  # 突風技を追加
+    HengeStaff(),  # 変化の杖を追加
 ]
 
 
