@@ -68,11 +68,11 @@ class SpecialMoveWindow:
         if self.selected_move and self.board:
             # 技を使う処理
             if self.selected_move.can_use(self.board, self.player):
-                # メンコの場合は確認ダイアログを表示
-                if self.selected_move.name == "メンコ":
+                # メンコまたは突風の場合は確認ダイアログを表示
+                if self.selected_move.name == "メンコ" or self.selected_move.name == "突風":
                     self.board.special_move_active = self.selected_move
                     self.board.special_move_confirm = True
-                    self.board.special_move_target = None  # メンコは対象を選択しない
+                    self.board.special_move_target = None  # 対象を選択しない
                     self.close()
                 else:
                     # 対象を選択する必要がある技の場合

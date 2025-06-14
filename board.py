@@ -180,7 +180,7 @@ class Board:
             pygame.draw.rect(self.screen, (0, 0, 0), message_bg, 2)
             
             # 確認メッセージ
-            if self.special_move_active.name == "メンコ":
+            if self.special_move_active.name == "メンコ" or self.special_move_active.name == "突風":
                 message_text = f"「{self.special_move_active.name}」を使用しますか？"
             else:
                 row, col = self.special_move_target
@@ -677,8 +677,8 @@ class Board:
     def confirm_special_move(self):
         """特殊技の適用を確定する"""
         if self.special_move_active:
-            # メンコの場合は対象の駒を選択せずに直接適用
-            if self.special_move_active.name == "メンコ":
+            # メンコや突風の場合は対象の駒を選択せずに直接適用
+            if self.special_move_active.name == "メンコ" or self.special_move_active.name == "突風":
                 result = self.apply_special_move(self.special_move_active)
             elif self.special_move_target:
                 # 対象を選択する技の場合
@@ -697,6 +697,6 @@ class Board:
         self.special_move_confirm = False
         self.special_move_target = None
         
-        # メンコの場合は特殊技選択もキャンセルする
-        if self.special_move_active and self.special_move_active.name == "メンコ":
+        # メンコや突風の場合は特殊技選択もキャンセルする
+        if self.special_move_active and (self.special_move_active.name == "メンコ" or self.special_move_active.name == "突風"):
             self.special_move_active = None
