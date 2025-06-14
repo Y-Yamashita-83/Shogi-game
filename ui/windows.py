@@ -68,8 +68,8 @@ class SpecialMoveWindow:
         if self.selected_move and self.board:
             # 技を使う処理
             if self.selected_move.can_use(self.board, self.player):
-                # メンコ、突風、変化の杖、転送装置の場合は確認ダイアログを表示
-                if self.selected_move.name == "メンコ" or self.selected_move.name == "突風" or self.selected_move.name == "変化の杖" or self.selected_move.name == "転送装置":
+                # メンコ、突風、変化の杖、転送装置、駒落ちの場合は確認ダイアログを表示
+                if self.selected_move.name == "メンコ" or self.selected_move.name == "突風" or self.selected_move.name == "変化の杖" or self.selected_move.name == "転送装置" or self.selected_move.name == "駒落ち":
                     self.board.special_move_active = self.selected_move
                     self.board.special_move_confirm = True
                     self.board.special_move_target = None  # 対象を選択しない
