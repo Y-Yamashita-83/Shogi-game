@@ -398,6 +398,55 @@ class Teleporter(SpecialMove):
         return True
 
 
+class KomaOchi(SpecialMove):
+    def __init__(self):
+        super().__init__(
+            "駒落ち",
+            "ランダムに選ばれた1つの駒を消滅させる",
+            duration=0  # 即時効果なので持続ターンは0
+        )
+    
+    def can_use(self, board, player):
+        # 盤上に王以外の駒が1枚以上あるか確認
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name != "king":
+                    return True
+        return False
+    
+    def execute(self, board, player, target_pos=None):
+        # 盤上の王以外の駒をリストアップ
+        valid_pieces = []
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name != "king":
+                    valid_pieces.append((row, col))
+        
+        # 対象となる駒がない場合
+        if not valid_pieces:
+            print(f"{self.name}の効果が発動しましたが、対象となる駒がありませんでした。")
+            return True
+        
+        # ランダムに1枚選択
+        selected_pos = random.choice(valid_pieces)
+        row, col = selected_pos
+        piece = board.grid[row][col]
+        
+        # 駒の情報を保存（メッセージ用）
+        piece_kanji = piece.kanji
+        piece_player = "先手" if piece.player == 1 else "後手"
+        
+        # 駒を消滅させる
+        board.grid[row][col] = None
+        
+        # 効果メッセージ
+        print(f"{self.name}の効果が発動！ 位置 ({row+1},{col+1}) の {piece_player}の{piece_kanji} が消滅しました！")
+        
+        return True
+
+
 # 利用可能な技のリスト
 AVAILABLE_SPECIAL_MOVES = [
     Technique1(),
@@ -405,6 +454,7 @@ AVAILABLE_SPECIAL_MOVES = [
     Toppuu(),  # 突風技を追加
     HengeStaff(),  # 変化の杖を追加
     Teleporter(),  # 転送装置を追加
+    KomaOchi(),  # 駒落ちを追加
 ]
 
 
