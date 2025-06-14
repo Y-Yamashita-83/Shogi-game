@@ -293,12 +293,118 @@ class HengeStaff(SpecialMove):
         return True
 
 
+class Teleporter(SpecialMove):
+    def __init__(self):
+        super().__init__(
+            "転送装置",
+            "ランダムに選ばれた2つの駒の位置を入れ替える",
+            duration=0  # 即時効果なので持続ターンは0
+        )
+    
+    def can_use(self, board, player):
+        # 盤上に王以外の駒が2枚以上あるか確認
+        valid_pieces = self._get_valid_pieces(board)
+        return len(valid_pieces) >= 2
+    
+    def _get_valid_pieces(self, board):
+        """入れ替え可能な駒のリストを返す（王を除く）"""
+        valid_pieces = []
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name != "king":
+                    valid_pieces.append((row, col))
+        return valid_pieces
+    
+    def _check_nifu(self, board, pos1, pos2):
+        """入れ替えた後に二歩になるかチェック"""
+        row1, col1 = pos1
+        row2, col2 = pos2
+        piece1 = board.grid[row1][col1]
+        piece2 = board.grid[row2][col2]
+        
+        # どちらかが歩でない場合は二歩にならない
+        if piece1.name != "pawn" or piece1.is_promoted or piece2.name != "pawn" or piece2.is_promoted:
+            return False
+            
+        # 同じ列でない場合は二歩にならない
+        if col1 != col2:
+            return False
+            
+        # 同じプレイヤーの駒でない場合は二歩にならない
+        if piece1.player != piece2.player:
+            return False
+            
+        # 同じプレイヤーの歩が同じ列に2枚以上ある場合は二歩になる
+        return True
+    
+    def execute(self, board, player, target_pos=None):
+        # 入れ替え可能な駒のリストを取得
+        valid_pieces = self._get_valid_pieces(board)
+        
+        # 対象となる駒が2枚未満の場合
+        if len(valid_pieces) < 2:
+            print(f"{self.name}の効果が発動しましたが、入れ替え可能な駒が足りませんでした。")
+            return True
+        
+        # 入れ替え可能な組み合わせを見つける
+        max_attempts = 50  # 最大試行回数
+        for _ in range(max_attempts):
+            # ランダムに2枚選択
+            pos1, pos2 = random.sample(valid_pieces, 2)
+            row1, col1 = pos1
+            row2, col2 = pos2
+            piece1 = board.grid[row1][col1]
+            piece2 = board.grid[row2][col2]
+            
+            # 二歩チェック
+            if self._check_nifu(board, pos1, pos2):
+                continue  # 二歩になる場合は別の組み合わせを試す
+                
+            # 歩の場合、入れ替え後に二歩にならないかチェック
+            if piece1.name == "pawn" and not piece1.is_promoted:
+                # 同じ筋に同じプレイヤーの歩があるかチェック
+                has_pawn_in_same_column = False
+                for r in range(9):
+                    if r != row2 and board.grid[r][col2] and board.grid[r][col2].name == "pawn" and \
+                       board.grid[r][col2].player == piece1.player and not board.grid[r][col2].is_promoted:
+                        has_pawn_in_same_column = True
+                        break
+                if has_pawn_in_same_column:
+                    continue  # 二歩になる場合は別の組み合わせを試す
+            
+            if piece2.name == "pawn" and not piece2.is_promoted:
+                # 同じ筋に同じプレイヤーの歩があるかチェック
+                has_pawn_in_same_column = False
+                for r in range(9):
+                    if r != row1 and board.grid[r][col1] and board.grid[r][col1].name == "pawn" and \
+                       board.grid[r][col1].player == piece2.player and not board.grid[r][col1].is_promoted:
+                        has_pawn_in_same_column = True
+                        break
+                if has_pawn_in_same_column:
+                    continue  # 二歩になる場合は別の組み合わせを試す
+            
+            # 入れ替え可能な組み合わせが見つかった
+            # 駒を入れ替え
+            board.grid[row1][col1], board.grid[row2][col2] = board.grid[row2][col2], board.grid[row1][col1]
+            
+            # 効果メッセージ
+            print(f"{self.name}の効果が発動！ 位置 ({row1+1},{col1+1}) の {piece1.kanji} と位置 ({row2+1},{col2+1}) の {piece2.kanji} が入れ替わりました！")
+            
+            return True
+        
+        # 入れ替え可能な組み合わせが見つからなかった場合
+        print(f"{self.name}の効果が発動しましたが、入れ替え可能な組み合わせが見つかりませんでした。")
+        return True
+
+
 # 利用可能な技のリスト
 AVAILABLE_SPECIAL_MOVES = [
     Technique1(),
     Menko(),  # メンコ技を追加
     Toppuu(),  # 突風技を追加
     HengeStaff(),  # 変化の杖を追加
+    Teleporter(),  # 転送装置を追加
 ]
 
 
