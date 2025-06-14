@@ -457,3 +457,28 @@ class Piece:
     def reset_effects(self):
         """駒の特殊効果をすべてリセットする"""
         self.effects = {}  # 効果をすべて削除
+        
+    def apply_effect(self, effect_name, value, duration=0):
+        """駒に特殊効果を適用する"""
+        self.effects[effect_name] = value
+        if duration > 0:
+            self.effects[f"{effect_name}_duration"] = duration
+            
+    def update_effects(self):
+        """ターン終了時に特殊効果の持続時間を更新する"""
+        effects_to_remove = []
+        
+        for effect_name, value in self.effects.items():
+            if effect_name.endswith("_duration"):
+                base_effect = effect_name[:-9]  # "_duration"の部分を除去
+                self.effects[effect_name] -= 1
+                
+                # 持続時間が0になったら効果を削除
+                if self.effects[effect_name] <= 0:
+                    effects_to_remove.append(base_effect)
+                    effects_to_remove.append(effect_name)
+        
+        # 期限切れの効果を削除
+        for effect_name in effects_to_remove:
+            if effect_name in self.effects:
+                del self.effects[effect_name]

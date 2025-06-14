@@ -68,9 +68,16 @@ class SpecialMoveWindow:
         if self.selected_move and self.board:
             # 技を使う処理
             if self.selected_move.can_use(self.board, self.player):
-                # 対象を選択する必要がある技の場合
-                self.board.special_move_active = self.selected_move
-                self.close()
+                # メンコの場合は確認ダイアログを表示
+                if self.selected_move.name == "メンコ":
+                    self.board.special_move_active = self.selected_move
+                    self.board.special_move_confirm = True
+                    self.board.special_move_target = None  # メンコは対象を選択しない
+                    self.close()
+                else:
+                    # 対象を選択する必要がある技の場合
+                    self.board.special_move_active = self.selected_move
+                    self.close()
             else:
                 print("この技は現在使用できません")
                 # 使用できない場合はウィンドウを閉じない

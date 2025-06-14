@@ -90,6 +90,9 @@ def main():
                         elif board.confirm_no_button.handle_event(event):
                             # 確認をキャンセル
                             board.cancel_confirm()
+                            # メンコの場合は特殊技選択ウィンドウを再度開く
+                            if board.special_move_active is None:
+                                special_move_window.open(board, board.current_player)
                             continue
                     
                     # 特殊技が選択されている場合、「技選択に戻る」ボタンのクリック処理

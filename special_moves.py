@@ -1,6 +1,7 @@
 """
 将棋ゲームの特殊技を管理するモジュール
 """
+import random
 
 class SpecialMove:
     def __init__(self, name, description, duration=1, icon=None):
@@ -56,10 +57,59 @@ class Technique1(SpecialMove):
         return True
 
 
+class Menko(SpecialMove):
+    def __init__(self):
+        super().__init__(
+            "メンコ",
+            "ランダムに3枚の駒を裏返す（成っていない駒は成り、成っている駒は元に戻る）",
+            duration=0  # 即時効果なので持続ターンは0
+        )
+    
+    def can_use(self, board, player):
+        # 盤上に王と金以外の駒が3枚以上あるか確認
+        valid_pieces = []
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name not in ["king", "gold"]:
+                    valid_pieces.append((row, col))
+        
+        return len(valid_pieces) >= 3
+    
+    def execute(self, board, player, target_pos=None):
+        # 盤上の王と金以外の駒をリストアップ
+        valid_pieces = []
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name not in ["king", "gold"]:
+                    valid_pieces.append((row, col))
+        
+        # 3枚以上ない場合は効果発動しない
+        if len(valid_pieces) < 3:
+            return False
+        
+        # ランダムに3枚選択
+        selected_pieces = random.sample(valid_pieces, 3)
+        
+        # 効果メッセージ
+        print(f"{self.name}の効果が発動！ ランダムに選ばれた3枚の駒が裏返ります！")
+        
+        # 選択された駒を裏返す（成り/成り戻し）
+        for row, col in selected_pieces:
+            piece = board.grid[row][col]
+            if piece:
+                # 成っていない駒は成る、成っている駒は元に戻る
+                piece.is_promoted = not piece.is_promoted
+                print(f"位置 ({row+1},{col+1}) の {piece.kanji} が{'成りました' if piece.is_promoted else '元に戻りました'}！")
+        
+        return True
+
+
 # 利用可能な技のリスト
 AVAILABLE_SPECIAL_MOVES = [
     Technique1(),
-    # 他の技をここに追加
+    Menko(),  # メンコ技を追加
 ]
 
 
