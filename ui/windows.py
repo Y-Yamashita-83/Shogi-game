@@ -6,8 +6,8 @@ from special_moves import get_special_moves
 class SpecialMoveWindow:
     def __init__(self, font, button_font):
         self.active = False
-        self.width = 600  # ウィンドウ幅をさらに広げる
-        self.height = 450  # ウィンドウ高さも広げる
+        self.width = 650  # ウィンドウ幅をさらに広げる
+        self.height = 500  # ウィンドウ高さも広げる
         self.x = (SCREEN_WIDTH - self.width) // 2
         self.y = (SCREEN_HEIGHT - self.height) // 2
         self.font = font
@@ -43,15 +43,15 @@ class SpecialMoveWindow:
             self.x + 50,
             self.y + 70,
             self.width - 100,
-            self.height - 180
+            self.height - 270  # 縦幅をさらに減らす
         )
         
         # 技の説明を表示する領域
         self.description_rect = pygame.Rect(
             self.x + 50,
-            self.y + self.height - 120,
+            self.y + self.height - 170,  # 位置を上に移動
             self.width - 100,
-            70  # 説明領域を広げる
+            120  # 説明領域をさらに広げる（3行分）
         )
         
     def open(self, board=None, player=None):
@@ -81,6 +81,17 @@ class SpecialMoveWindow:
             else:
                 print("この技は現在使用できません")
                 # 使用できない場合はウィンドウを閉じない
+                
+    def _find_split_position(self, text, min_pos, search_range):
+        """テキストを分割する適切な位置を見つける"""
+        # 句読点や空白で分割するのが理想的
+        for char in ["。", "、", "！", "？", " "]:
+            pos = text.find(char, min_pos, min_pos + search_range)
+            if pos != -1:
+                return pos + 1  # 句読点を含めて分割
+        
+        # 適切な分割位置が見つからない場合は文字数で分割
+        return min(len(text) // 2, min_pos + search_range)
         
     def draw(self, surface):
         if not self.active:
@@ -104,7 +115,7 @@ class SpecialMoveWindow:
         if self.special_moves:
             for i, move in enumerate(self.special_moves):
                 # 技の位置を計算
-                move_y = self.move_list_rect.y + 10 + i * 30
+                move_y = self.move_list_rect.y + 15 + i * 35  # 間隔を広げる
                 
                 # 選択されている技の背景を強調表示
                 if i == self.selected_index:
@@ -112,14 +123,14 @@ class SpecialMoveWindow:
                         self.move_list_rect.x + 5,
                         move_y - 5,
                         self.move_list_rect.width - 10,
-                        30
+                        35  # 高さを広げる
                     )
                     pygame.draw.rect(surface, (200, 220, 255), highlight_rect)
                     pygame.draw.rect(surface, (100, 150, 230), highlight_rect, 1)
                 
                 # 技の名前を表示
                 move_text = self.font.render(move.name, True, (0, 0, 0))
-                surface.blit(move_text, (self.move_list_rect.x + 20, move_y))
+                surface.blit(move_text, (self.move_list_rect.x + 30, move_y))  # 左側の余白を増やす
         else:
             # 技がない場合のメッセージ
             no_moves_text = self.font.render("利用可能な特殊技はありません", True, (100, 100, 100))
@@ -134,29 +145,49 @@ class SpecialMoveWindow:
             
             # 説明テキストを複数行に分割して表示
             description = self.selected_move.description
-            # 説明テキストが長い場合は適切な位置で分割
-            if len(description) > 20:
-                # 適切な分割位置を探す（スペースや句読点の位置）
-                split_pos = description.find("、", 10)
-                if split_pos == -1:
-                    split_pos = description.find("。", 10)
-                if split_pos == -1:
-                    split_pos = description.find(" ", 10)
-                if split_pos == -1:
-                    # 適切な分割位置がない場合は半分で分割
-                    split_pos = len(description) // 2
+            
+            # 説明テキストの長さに応じて分割（最大3行）
+            if len(description) > 40:
+                # 1行目と2行目の分割位置を探す
+                split_pos1 = self._find_split_position(description, 0, 20)
+                line1 = description[:split_pos1]
                 
-                line1 = description[:split_pos + 1]
-                line2 = description[split_pos + 1:]
+                # 2行目と3行目の分割位置を探す
+                remaining = description[split_pos1:]
+                split_pos2 = self._find_split_position(remaining, 0, 20)
+                line2 = remaining[:split_pos2]
+                line3 = remaining[split_pos2:]
                 
                 # 1行目
                 desc_text1 = self.font.render(line1, True, (0, 0, 0))
-                desc_rect1 = desc_text1.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 20))
+                desc_rect1 = desc_text1.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 25))
                 surface.blit(desc_text1, desc_rect1)
                 
                 # 2行目
                 desc_text2 = self.font.render(line2, True, (0, 0, 0))
-                desc_rect2 = desc_text2.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 45))
+                desc_rect2 = desc_text2.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 50))
+                surface.blit(desc_text2, desc_rect2)
+                
+                # 3行目
+                desc_text3 = self.font.render(line3, True, (0, 0, 0))
+                desc_rect3 = desc_text3.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 75))
+                surface.blit(desc_text3, desc_rect3)
+                
+            elif len(description) > 20:
+                # 適切な分割位置を探す（スペースや句読点の位置）
+                split_pos = self._find_split_position(description, 10, 20)
+                
+                line1 = description[:split_pos]
+                line2 = description[split_pos:]
+                
+                # 1行目
+                desc_text1 = self.font.render(line1, True, (0, 0, 0))
+                desc_rect1 = desc_text1.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 35))
+                surface.blit(desc_text1, desc_rect1)
+                
+                # 2行目
+                desc_text2 = self.font.render(line2, True, (0, 0, 0))
+                desc_rect2 = desc_text2.get_rect(center=(self.description_rect.centerx, self.description_rect.y + 65))
                 surface.blit(desc_text2, desc_rect2)
             else:
                 # 短い説明はそのまま中央に表示
@@ -194,8 +225,8 @@ class SpecialMoveWindow:
             # 技リストのクリック処理
             if self.move_list_rect.collidepoint(event.pos):
                 # クリックされた位置から技のインデックスを計算
-                rel_y = event.pos[1] - self.move_list_rect.y - 10
-                clicked_index = rel_y // 30
+                rel_y = event.pos[1] - self.move_list_rect.y - 15
+                clicked_index = rel_y // 35  # 間隔を広げたので計算も調整
                 
                 # 有効な技がクリックされたか確認
                 if 0 <= clicked_index < len(self.special_moves):
