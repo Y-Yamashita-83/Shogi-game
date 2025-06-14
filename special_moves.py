@@ -19,35 +19,6 @@ class SpecialMove:
         """技の効果を実行する"""
         # 継承先で実装
         pass
-
-
-class Technique1(SpecialMove):
-    def __init__(self):
-        super().__init__(
-            "歩強化", 
-            "選択した歩が3ターンの間、最大2マス進めるようになる",
-            duration=3
-        )
-    
-    def can_use(self, board, player):
-        # プレイヤーが歩を持っているか確認
-        for row in range(9):
-            for col in range(9):
-                piece = board.grid[row][col]
-                if piece and piece.player == player and piece.name == "pawn" and not piece.is_promoted:
-                    return True
-        return False
-        
-    def execute(self, board, player, target_pos=None):
-        if not target_pos:
-            return False
-            
-        row, col = target_pos
-        piece = board.grid[row][col]
-        
-        # 選択した駒が自分の歩であるか確認
-        if not piece or piece.player != player or piece.name != "pawn" or piece.is_promoted:
-            return False
             
         # 歩に強化効果を適用
         piece.apply_effect('enhanced', True, self.duration)
@@ -449,12 +420,11 @@ class KomaOchi(SpecialMove):
 
 # 利用可能な技のリスト
 AVAILABLE_SPECIAL_MOVES = [
-    Technique1(),
-    Menko(),  # メンコ技を追加
-    Toppuu(),  # 突風技を追加
-    HengeStaff(),  # 変化の杖を追加
-    Teleporter(),  # 転送装置を追加
-    KomaOchi(),  # 駒落ちを追加
+    Menko(),  # メンコ技
+    Toppuu(),  # 突風技
+    HengeStaff(),  # 変化の杖
+    Teleporter(),  # 転送装置
+    KomaOchi(),  # 駒落ち
 ]
 
 
