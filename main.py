@@ -1,15 +1,19 @@
 import pygame
 import sys
-from constants import SCREEN_WIDTH, SCREEN_HEIGHT
+from constants import SCREEN_WIDTH, SCREEN_HEIGHT, CELL_SIZE
 from utils import load_piece_images, setup_fonts, load_sounds
 from board import Board
 from ui.button import Button
 from ui.windows import SpecialMoveWindow, PromotionWindow
+from event_manager import EventManager, GameEvent
 
 def main():
     # 初期化
     pygame.init()
     pygame.mixer.init()  # 音声機能の初期化
+    
+    # イベントマネージャーの作成
+    event_manager = EventManager()
     
     # 画面設定
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -21,7 +25,7 @@ def main():
     move_sound = load_sounds()
     
     # ゲームオブジェクトの作成
-    board = Board(screen, font, piece_images, move_sound)
+    board = Board(screen, font, piece_images, move_sound, event_manager)
     clock = pygame.time.Clock()
     
     # 「最初に戻る」ボタン
@@ -47,6 +51,23 @@ def main():
     
     # 成り判定ウィンドウ
     promotion_window = PromotionWindow(font, button_font)
+    
+    # 特殊技イベントのリスナーを登録
+    def on_special_move_activated(data):
+        message = data["message"]
+        affected_positions = data.get("affected_positions", [])
+        
+        # メッセージエフェクトを追加（画面上部に表示）
+        board.effect_display.add_message(message, position=(SCREEN_WIDTH // 2, 30), color=(255, 0, 0))
+        
+        # 影響を受けた駒をハイライト
+        for row, col in affected_positions:
+            x = (col * CELL_SIZE) + (SCREEN_WIDTH - CELL_SIZE * 9) // 2
+            y = (row * CELL_SIZE) + (SCREEN_HEIGHT - CELL_SIZE * 9) // 2
+            board.effect_display.add_highlight((x, y), CELL_SIZE, color=(255, 255, 0, 150), duration=1.5)
+    
+    # イベントリスナーを登録
+    event_manager.subscribe(GameEvent.SPECIAL_MOVE_ACTIVATED, on_special_move_activated)
     
     running = True
     while running:
@@ -76,6 +97,9 @@ def main():
                     if board.game_over and restart_button.handle_event(event):
                         # ゲームをリセット
                         board = Board(screen, font, piece_images, move_sound)
+                        # 特殊技の使用状態をリセット
+                        from special_moves import reset_special_moves
+                        reset_special_moves()
                         continue
                         
                     # 通常のゲームプレイ

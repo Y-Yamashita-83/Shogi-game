@@ -78,6 +78,14 @@ class SpecialMoveWindow:
                     # 対象を選択する必要がある技の場合
                     self.board.special_move_active = self.selected_move
                     self.close()
+                    
+                # 特殊技選択時にエフェクト表示
+                if self.board.effect_display:
+                    self.board.effect_display.add_message(
+                        f"{self.selected_move.name}を選択しました", 
+                        position=(SCREEN_WIDTH // 2, 30),
+                        color=(0, 0, 255)
+                    )
             else:
                 print("この技は現在使用できません")
                 # 使用できない場合はウィンドウを閉じない

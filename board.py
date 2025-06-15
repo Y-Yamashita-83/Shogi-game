@@ -1,9 +1,10 @@
 import pygame
 from constants import BOARD_COLOR, GRID_COLOR, VALID_MOVE_COLOR, BOARD_SIZE, CELL_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, SELECTED_COLOR
 from pieces import Piece
+from ui.effect_display import EffectDisplay
 
 class Board:
-    def __init__(self, screen, font, piece_images, move_sound):
+    def __init__(self, screen, font, piece_images, move_sound, event_manager=None):
         self.screen = screen
         self.font = font
         self.piece_images = piece_images
@@ -18,6 +19,8 @@ class Board:
         self.in_check = False  # 王手状態かどうか
         self.checkmate = False  # 詰み状態かどうか
         self.game_over = False  # ゲーム終了状態
+        self.event_manager = event_manager
+        self.effect_display = EffectDisplay(screen, font)
         self.winner = None     # 勝者（1: 先手, 2: 後手）
         self.promotion_pending = False  # 成り判定中かどうか
         self.pending_move = None  # 成り判定中の移動情報
@@ -213,6 +216,11 @@ class Board:
             text = self.font.render(check_text, True, (255, 0, 0))
             text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 30))
             self.screen.blit(text, text_rect)
+        
+        # エフェクトの更新と描画
+        if self.effect_display:
+            self.effect_display.update()
+            self.effect_display.draw()
             
         return False
         

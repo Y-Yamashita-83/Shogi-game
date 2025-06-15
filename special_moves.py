@@ -25,6 +25,18 @@ class SpecialMove:
         
         print(f"{self.name}の効果が発動！ {piece.kanji}が強化され、{self.duration}ターン（{self.duration*2}手）の間、2マス進めるようになります！")
         print(f"※成ると効果は消えます")
+        
+        # イベント発火（表示はこのイベントに反応する形で行う）
+        if board.event_manager:
+            board.event_manager.dispatch(
+                "special_move_activated", 
+                {
+                    "move_name": self.name,
+                    "message": f"{self.name}の効果が発動！",
+                    "affected_pieces": [(target_pos[0], target_pos[1])]
+                }
+            )
+            
         return True
 
 
@@ -64,7 +76,7 @@ class Menko(SpecialMove):
         selected_pieces = random.sample(valid_pieces, 3)
         
         # 効果メッセージ
-        print(f"{self.name}の効果が発動！ ランダムに選ばれた3枚の駒が裏返ります！")
+        print(f"{self.name}")
         
         # 選択された駒を裏返す（成り/成り戻し）
         for row, col in selected_pieces:
@@ -72,7 +84,18 @@ class Menko(SpecialMove):
             if piece:
                 # 成っていない駒は成る、成っている駒は元に戻る
                 piece.is_promoted = not piece.is_promoted
-                print(f"位置 ({row+1},{col+1}) の {piece.kanji} が{'成りました' if piece.is_promoted else '元に戻りました'}！")
+                print(f"位置 ({row+1},{col+1}) の {piece.kanji} が{'成った' if piece.is_promoted else '元に戻った'}！")
+        
+        # イベント発火（表示はこのイベントに反応する形で行う）
+        if board.event_manager:
+            board.event_manager.dispatch(
+                "special_move_activated", 
+                {
+                    "move_name": self.name,
+                    "message": f"{self.name}の効果が発動！ 3枚の駒が裏返りました！",
+                    "affected_positions": selected_pieces
+                }
+            )
         
         return True
 
@@ -137,7 +160,7 @@ class Toppuu(SpecialMove):
         
         # 対象となる駒がない場合
         if not valid_pieces:
-            print(f"{self.name}の効果が発動しましたが、何も起こりませんでした。")
+            print(f"何も起こらなかった。")
             return True
         
         # 移動方向をランダムに決定（左か右）
@@ -149,7 +172,7 @@ class Toppuu(SpecialMove):
         
         # 対象となる駒がない場合
         if not filtered_pieces:
-            print(f"{self.name}の効果が発動しましたが、{direction_text}に移動できる駒がないため何も起こりませんでした。")
+            print(f"何も起こらなかった")
             return True
         
         # 最大3枚をランダムに選択（対象が3枚未満の場合は全て選択）
@@ -157,7 +180,10 @@ class Toppuu(SpecialMove):
         selected_pieces = random.sample(filtered_pieces, num_to_select)
         
         # 効果メッセージ
-        print(f"{self.name}の効果が発動！ 突風が吹き、{direction_text}に駒が流されます！")
+        print(f"{self.name}")
+        
+        # 移動した駒の位置を記録
+        moved_positions = []
         
         # 選択された駒を移動
         for row, col, dir in selected_pieces:
@@ -170,7 +196,21 @@ class Toppuu(SpecialMove):
                 board.grid[row][new_col] = piece
                 board.grid[row][col] = None
                 
-                print(f"位置 ({row+1},{col+1}) の {piece.kanji} が{direction_text}に流されました！")
+                print(f"位置 ({row+1},{col+1}) の {piece.kanji} が{direction_text}に流された")
+                
+                # 移動後の位置を記録
+                moved_positions.append((row, new_col))
+        
+        # イベント発火（表示はこのイベントに反応する形で行う）
+        if board.event_manager:
+            board.event_manager.dispatch(
+                "special_move_activated", 
+                {
+                    "move_name": self.name,
+                    "message": f"{self.name}の効果が発動！ {len(moved_positions)}枚の駒が{direction_text}にずれました！",
+                    "affected_positions": moved_positions
+                }
+            )
         
         return True
 
@@ -203,8 +243,11 @@ class HengeStaff(SpecialMove):
         
         # 対象となる駒がない場合
         if not valid_pieces:
-            print(f"{self.name}の効果が発動しましたが、対象となる駒がありませんでした。")
+            print("何も起こらなかった")
             return True
+        
+        # 技発動メッセージ
+        print(f"{self.name}")
         
         # ランダムに1枚選択
         selected_pos = random.choice(valid_pieces)
@@ -259,7 +302,18 @@ class HengeStaff(SpecialMove):
         board.grid[row][col] = new_piece
         
         # 効果メッセージ
-        print(f"{self.name}の効果が発動！ 位置 ({row+1},{col+1}) の {original_kanji} が {new_piece.kanji} に変化しました！")
+        print(f"位置 ({row+1},{col+1}) の {original_kanji} が {new_piece.kanji} に変化した")
+        
+        # イベント発火（表示はこのイベントに反応する形で行う）
+        if board.event_manager:
+            board.event_manager.dispatch(
+                "special_move_activated", 
+                {
+                    "move_name": self.name,
+                    "message": f"{self.name}の効果が発動！ {original_kanji}が{new_piece.kanji}に変化しました！",
+                    "affected_positions": [(row, col)]
+                }
+            )
         
         return True
 
@@ -310,12 +364,15 @@ class Teleporter(SpecialMove):
         return True
     
     def execute(self, board, player, target_pos=None):
+        # 技発動メッセージ
+        print(f"{self.name}")
+        
         # 入れ替え可能な駒のリストを取得
         valid_pieces = self._get_valid_pieces(board)
         
         # 対象となる駒が2枚未満の場合
         if len(valid_pieces) < 2:
-            print(f"{self.name}の効果が発動しましたが、入れ替え可能な駒が足りませんでした。")
+            print(f"何も起こらなかった")
             return True
         
         # 入れ替え可能な組み合わせを見つける
@@ -360,12 +417,23 @@ class Teleporter(SpecialMove):
             board.grid[row1][col1], board.grid[row2][col2] = board.grid[row2][col2], board.grid[row1][col1]
             
             # 効果メッセージ
-            print(f"{self.name}の効果が発動！ 位置 ({row1+1},{col1+1}) の {piece1.kanji} と位置 ({row2+1},{col2+1}) の {piece2.kanji} が入れ替わりました！")
+            print(f"位置 ({row1+1},{col1+1}) の {piece1.kanji} と位置 ({row2+1},{col2+1}) の {piece2.kanji} が入れ替わった")
+            
+            # イベント発火（表示はこのイベントに反応する形で行う）
+            if board.event_manager:
+                board.event_manager.dispatch(
+                    "special_move_activated", 
+                    {
+                        "move_name": self.name,
+                        "message": f"{self.name}の効果が発動！ {piece1.kanji}と{piece2.kanji}が入れ替わりました！",
+                        "affected_positions": [(row1, col1), (row2, col2)]
+                    }
+                )
             
             return True
         
         # 入れ替え可能な組み合わせが見つからなかった場合
-        print(f"{self.name}の効果が発動しましたが、入れ替え可能な組み合わせが見つかりませんでした。")
+        print(f"何も起こらなかった")
         return True
 
 
@@ -387,6 +455,9 @@ class KomaOchi(SpecialMove):
         return False
     
     def execute(self, board, player, target_pos=None):
+        # 技発動メッセージ
+        print(f"{self.name}")
+        
         # 盤上の王以外の駒をリストアップ
         valid_pieces = []
         for row in range(9):
@@ -397,7 +468,7 @@ class KomaOchi(SpecialMove):
         
         # 対象となる駒がない場合
         if not valid_pieces:
-            print(f"{self.name}の効果が発動しましたが、対象となる駒がありませんでした。")
+            print(f"何も起こらなかった")
             return True
         
         # ランダムに1枚選択
@@ -413,7 +484,18 @@ class KomaOchi(SpecialMove):
         board.grid[row][col] = None
         
         # 効果メッセージ
-        print(f"{self.name}の効果が発動！ 位置 ({row+1},{col+1}) の {piece_player}の{piece_kanji} が消滅しました！")
+        print(f"位置 ({row+1},{col+1}) の {piece_player}の{piece_kanji} が消滅した")
+        
+        # イベント発火（表示はこのイベントに反応する形で行う）
+        if board.event_manager:
+            board.event_manager.dispatch(
+                "special_move_activated", 
+                {
+                    "move_name": self.name,
+                    "message": f"{self.name}の効果が発動！ {piece_kanji}が消滅しました！",
+                    "affected_positions": [(row, col)]
+                }
+            )
         
         return True
 
