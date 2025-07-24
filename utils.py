@@ -163,3 +163,20 @@ def load_sounds():
         sounds['title'] = None
         
     return sounds
+
+def load_battle_background():
+    """対局画面の背景画像を読み込む"""
+    bg_path = os.path.join(os.path.dirname(__file__), "assets", "images", "battle", "Japanese_castles.png")
+    if os.path.exists(bg_path):
+        try:
+            background = pygame.image.load(bg_path)
+            # 画面サイズに合わせてスケール
+            background = pygame.transform.scale(background, (SCREEN_WIDTH, SCREEN_HEIGHT))
+            print("対局背景画像を読み込みました")
+            return background
+        except pygame.error as e:
+            print(f"対局背景画像の読み込みに失敗しました: {e}")
+            return None
+    else:
+        print(f"対局背景画像ファイルが見つかりません: {bg_path}")
+        return None

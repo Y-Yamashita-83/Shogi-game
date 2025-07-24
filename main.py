@@ -178,7 +178,10 @@ def main():
                     
                     # ゲーム終了時のボタン処理
                     if board.game_over and restart_button.handle_event(event):
-                        # BGM停止
+                        # 勝負終了BGMを停止
+                        pygame.mixer.music.stop()
+                        
+                        # ゲーム用BGMも停止
                         bgm_manager.stop_bgm()
                         
                         # ゲームをリセット
@@ -239,10 +242,14 @@ def main():
         # エフェクト表示の更新
         board.effect_display.update()
         
+        # ゲーム終了シーケンスの更新
+        if board.game_over:
+            board.update_game_end_sequence()
+        
         # AI思考中の表示
         if (board.player_turn == 1 and not board.game_over and ai_move_timer > 0 and
             board.can_change_turn()):
-            thinking_text = font.render("コンピュータが考え中...", True, (100, 100, 100))
+            thinking_text = font.render("コンピュータが考え中...", True, (255, 255, 255))
             screen.blit(thinking_text, (10, 10))
         
         # 「技を使う」ボタンの更新と描画（ゲーム終了時または先手番は表示しない）
@@ -294,16 +301,57 @@ def main():
 def show_game_mode_selection(screen, font, button_font, sounds=None):
     """ゲームモード選択画面を表示し、選択されたモードを返す"""
     
-    # 前回の音声を停止（重複再生防止）
-    pygame.mixer.stop()
+    # タイトルシーケンス用変数
+    title_timer = 0
+    title_bgm_delay = 1500  # 1.5秒（ミリ秒）
+    title_bgm_started = False
+    title_sound_played = False
     
-    # タイトル音声を再生
-    if sounds and sounds.get('title'):
-        try:
-            sounds['title'].play()
-            print("タイトル音声を再生しました")
-        except pygame.error as e:
-            print(f"タイトル音声の再生に失敗しました: {e}")
+    def start_title_sequence():
+        """タイトルシーケンスを開始"""
+        nonlocal title_timer, title_bgm_started, title_sound_played
+        
+        # 前回の音声を停止
+        pygame.mixer.stop()
+        
+        # タイトル音声を再生
+        if sounds and sounds.get('title'):
+            try:
+                sounds['title'].play()
+                print("タイトル音声を再生しました")
+            except pygame.error as e:
+                print(f"タイトル音声の再生に失敗しました: {e}")
+        
+        # タイマーを開始
+        title_timer = pygame.time.get_ticks()
+        title_bgm_started = False
+        title_sound_played = True
+    
+    def update_title_sequence():
+        """タイトルシーケンスの更新"""
+        nonlocal title_bgm_started
+        
+        if title_sound_played and not title_bgm_started:
+            current_time = pygame.time.get_ticks()
+            # 1.5秒経過後にBGMを開始
+            if current_time - title_timer > title_bgm_delay:
+                # タイトルBGMを読み込んで再生
+                import os
+                title_bgm_path = os.path.join(os.path.dirname(__file__), "assets", "sound", "bgm", "zinja-ne.mp3")
+                if os.path.exists(title_bgm_path):
+                    try:
+                        pygame.mixer.music.load(title_bgm_path)
+                        pygame.mixer.music.set_volume(0.3)
+                        pygame.mixer.music.play(-1)  # ループ再生
+                        print("タイトルBGMを再生しました")
+                    except pygame.error as e:
+                        print(f"タイトルBGMの再生に失敗しました: {e}")
+                else:
+                    print(f"タイトルBGMファイルが見つかりません: {title_bgm_path}")
+                title_bgm_started = True
+    
+    # タイトルシーケンスを開始
+    start_title_sequence()
     
     # タイトル画像の読み込み
     from utils import load_title_image
@@ -336,6 +384,9 @@ def show_game_mode_selection(screen, font, button_font, sounds=None):
     
     # 選択画面のループ
     while selected_mode is None:
+        # タイトルシーケンスの更新
+        update_title_sequence()
+        
         mouse_pos = pygame.mouse.get_pos()
         
         for event in pygame.event.get():
@@ -376,6 +427,10 @@ def show_game_mode_selection(screen, font, button_font, sounds=None):
         endgame_button.draw(screen, button_font)
         
         pygame.display.flip()
+    
+    # モードが選択されたらタイトルBGMを停止
+    pygame.mixer.music.stop()
+    print("タイトルBGMを停止しました")
     
     return selected_mode
 

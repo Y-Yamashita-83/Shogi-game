@@ -59,6 +59,15 @@ class Board:
             SCREEN_WIDTH // 2 + 20, SCREEN_HEIGHT // 2 + 20, 100, 40, "いいえ", self.cancel_confirm
         )
         
+        # ゲーム終了シーケンス用
+        self.game_end_timer = 0
+        self.game_end_bgm_delay = 1500  # 1.5秒（ミリ秒）
+        self.game_end_bgm_started = False
+        
+        # 背景画像の読み込み
+        from utils import load_battle_background
+        self.battle_background = load_battle_background()
+        
         self.setup_board()
 
     def check_special_effects_complete(self):
@@ -213,6 +222,46 @@ class Board:
         else:
             print("王手音声が読み込まれていません")
     
+    def _play_game_end_bgm(self):
+        """勝負終了時のBGMを再生"""
+        import os
+        end_bgm_path = os.path.join(os.path.dirname(__file__), "assets", "sound", "bgm", "tasogare-hanabi.mp3")
+        if os.path.exists(end_bgm_path):
+            try:
+                pygame.mixer.music.load(end_bgm_path)
+                pygame.mixer.music.set_volume(0.3)
+                pygame.mixer.music.play(-1)  # ループ再生
+                print("勝負終了BGMを再生しました")
+            except pygame.error as e:
+                print(f"勝負終了BGMの再生に失敗しました: {e}")
+        else:
+            print(f"勝負終了BGMファイルが見つかりません: {end_bgm_path}")
+    
+    def _stop_game_end_bgm(self):
+        """勝負終了BGMを停止"""
+        pygame.mixer.music.stop()
+        print("勝負終了BGMを停止しました")
+    
+    def _start_game_end_sequence(self):
+        """ゲーム終了シーケンスを開始（音声 → BGM）"""
+        # 「まいりました」音声を再生
+        if self.toryo_sound:
+            self.toryo_sound.play()
+            print("ゲーム終了音声を再生しました")
+        
+        # タイマーを開始
+        self.game_end_timer = pygame.time.get_ticks()
+        self.game_end_bgm_started = False
+    
+    def update_game_end_sequence(self):
+        """ゲーム終了シーケンスの更新"""
+        if self.game_over and not self.game_end_bgm_started:
+            current_time = pygame.time.get_ticks()
+            # 1.5秒経過後にBGMを開始
+            if current_time - self.game_end_timer > self.game_end_bgm_delay:
+                self._play_game_end_bgm()
+                self.game_end_bgm_started = True
+    
     def can_change_turn(self):
         """手番交代が可能かどうか"""
         return not self.special_effect_pending
@@ -354,6 +403,13 @@ class Board:
                         break  # 王手が解消されたら終了
 
     def draw(self):
+        # 背景画像を描画（最初に描画して他の要素の下に配置）
+        if self.battle_background:
+            self.screen.blit(self.battle_background, (0, 0))
+        else:
+            # 背景画像がない場合はデフォルトの背景色
+            self.screen.fill((240, 217, 181))  # 薄い茶色
+        
         # 盤の描画
         board_rect = pygame.Rect((SCREEN_WIDTH - BOARD_SIZE) // 2, (SCREEN_HEIGHT - BOARD_SIZE) // 2, BOARD_SIZE, BOARD_SIZE)
         pygame.draw.rect(self.screen, BOARD_COLOR, board_rect)
@@ -391,16 +447,16 @@ class Board:
         
         # 手番表示
         turn_text = "先手番↓" if self.player_turn == 1 else "後手番↑"
-        text = self.font.render(turn_text, True, (0, 0, 0))
+        text = self.font.render(turn_text, True, (255, 255, 255))
         if self.player_turn == 1:
             self.screen.blit(text, (20, 90))
         else:
             self.screen.blit(text, (20, SCREEN_HEIGHT - 90))
 
-        # ターン数表示
-        turn_count_text = f"ターン: {self.turn_count}"
-        text = self.font.render(turn_count_text, True, (0, 0, 0))
-        self.screen.blit(text, (SCREEN_WIDTH - 150, 150))
+        # # ターン数表示
+        # turn_count_text = f"ターン: {self.turn_count}"
+        # text = self.font.render(turn_count_text, True, (0, 0, 0))
+        # self.screen.blit(text, (SCREEN_WIDTH - 150, 150))
         
         # 特殊技確認中の場合、確認メッセージと「はい」「いいえ」ボタンを表示
         if self.special_move_confirm:
@@ -638,6 +694,13 @@ class Board:
                 self.game_over = True
                 self.winner = player
                 
+                # ゲーム用BGMを停止
+                if self.bgm_manager:
+                    self.bgm_manager.stop_bgm()
+                
+                # ゲーム終了シーケンスを開始
+                self._start_game_end_sequence()
+                
         # end_turnメソッドを使用して効果の持続時間も更新する
         self.end_turn()
     def is_valid_move(self, from_pos, to_pos):
@@ -662,6 +725,13 @@ class Board:
                     
                 self.game_over = True
                 self.winner = self.player_turn
+                
+                # ゲーム用BGMを停止
+                if self.bgm_manager:
+                    self.bgm_manager.stop_bgm()
+                
+                # ゲーム終了シーケンスを開始
+                self._start_game_end_sequence()
                 return
             else:
                 # 通常の駒を取る場合
@@ -705,6 +775,13 @@ class Board:
                 if self.checkmate:
                     self.game_over = True
                     self.winner = self.player_turn
+                    
+                    # ゲーム用BGMを停止
+                    if self.bgm_manager:
+                        self.bgm_manager.stop_bgm()
+                    
+                    # ゲーム終了シーケンスを開始
+                    self._start_game_end_sequence()
         
         # 手番を交代
         if not self.promotion_pending:
@@ -925,6 +1002,13 @@ class Board:
             if self.checkmate:
                 self.game_over = True
                 self.winner = 3 - self.player_turn  # 相手の勝ち
+                
+                # ゲーム用BGMを停止
+                if self.bgm_manager:
+                    self.bgm_manager.stop_bgm()
+                
+                # ゲーム終了シーケンスを開始
+                self._start_game_end_sequence()
     def cancel_special_move(self):
         """特殊技の選択をキャンセルして技選択画面に戻る"""
         self.special_move_active = None
@@ -936,6 +1020,13 @@ class Board:
         # 現在のプレイヤーの相手を勝者とする
         self.winner = 3 - self.player_turn
         self.game_over = True
+        
+        # ゲーム用BGMを停止
+        if self.bgm_manager:
+            self.bgm_manager.stop_bgm()
+        
+        # ゲーム終了シーケンスを開始
+        self._start_game_end_sequence()
         
         # 勝者のメッセージは通常のdrawメソッドで表示される
     def confirm_special_move(self):
