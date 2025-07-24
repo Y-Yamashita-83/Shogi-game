@@ -1,13 +1,31 @@
 import pygame
 from constants import BOARD_COLOR, GRID_COLOR, VALID_MOVE_COLOR, BOARD_SIZE, CELL_SIZE, SCREEN_WIDTH, SCREEN_HEIGHT, SELECTED_COLOR
 from pieces import Piece
+from ui.effect_display import EffectDisplay
 
 class Board:
-    def __init__(self, screen, font, piece_images, move_sound):
+    def __init__(self, screen, font, piece_images, sounds, event_manager=None, bgm_manager=None):
         self.screen = screen
         self.font = font
         self.piece_images = piece_images
-        self.move_sound = move_sound
+        self.sounds = sounds if sounds else {}
+        self.move_sound = self.sounds.get('move')
+        self.oute_sound = self.sounds.get('oute')
+        self.toryo_sound = self.sounds.get('toryo')
+        self.menko_sound = self.sounds.get('menko')  # メンコ音声を追加
+        self.toppu_sound = self.sounds.get('toppu')  # 突風音声を追加
+        self.hengenotsue_sound = self.sounds.get('hengenotsue')  # 変化の杖音声を追加
+        self.tensousouchi_sound = self.sounds.get('tensousouchi')  # 転送装置音声を追加
+        self.komaochi_sound = self.sounds.get('komaochi')  # 駒落ち音声を追加
+        self.oute_sound_played = False  # 王手音声再生フラグ
+        self.toryo_sound_played = False  # 投了音声再生フラグ
+        self.menko_sound_played = False  # メンコ音声再生フラグ
+        self.toppu_sound_played = False  # 突風音声再生フラグ
+        self.hengenotsue_sound_played = False  # 変化の杖音声再生フラグ
+        self.tensousouchi_sound_played = False  # 転送装置音声再生フラグ
+        self.komaochi_sound_played = False  # 駒落ち音声再生フラグ
+        self.current_special_move = None  # 現在実行中の特殊技名
+        self.bgm_manager = bgm_manager  # BGM管理の参照を追加
         self.grid = [[None for _ in range(9)] for _ in range(9)]
         self.selected_piece = None
         self.selected_pos = None
@@ -18,6 +36,8 @@ class Board:
         self.in_check = False  # 王手状態かどうか
         self.checkmate = False  # 詰み状態かどうか
         self.game_over = False  # ゲーム終了状態
+        self.event_manager = event_manager
+        self.effect_display = EffectDisplay(screen, font)
         self.winner = None     # 勝者（1: 先手, 2: 後手）
         self.promotion_pending = False  # 成り判定中かどうか
         self.pending_move = None  # 成り判定中の移動情報
@@ -28,14 +48,10 @@ class Board:
         # 特殊技関連
         self.special_move_confirm = False  # 特殊技の確認中かどうか
         self.special_move_target = None    # 特殊技の対象の駒の位置
-        
-        # 「技選択画面に戻る」ボタン（画面下部に配置）
-        from ui.button import Button
-        self.back_to_special_move_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT - 60, 200, 40, "技選択に戻る", self.cancel_special_move
-        )
+        self.special_effect_pending = False  # 特殊技エフェクト待機中
         
         # 特殊技確認用ボタン
+        from ui.button import Button
         self.confirm_yes_button = Button(
             SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 20, 100, 40, "はい", self.confirm_special_move
         )
@@ -45,6 +61,167 @@ class Board:
         
         self.setup_board()
 
+    def check_special_effects_complete(self):
+        """特殊技エフェクトが完了したかチェック"""
+        if self.special_effect_pending:
+            if not self.effect_display.is_effects_active():
+                # エフェクト完了、手番交代を許可
+                self.special_effect_pending = False
+                
+                # 特殊技音声フラグをリセット
+                if self.current_special_move == "メンコ":
+                    self.menko_sound_played = False
+                    self.current_special_move = None
+                elif self.current_special_move == "突風":
+                    self.toppu_sound_played = False
+                    self.current_special_move = None
+                elif self.current_special_move == "変化の杖":
+                    self.hengenotsue_sound_played = False
+                    self.current_special_move = None
+                elif self.current_special_move == "転送装置":
+                    self.tensousouchi_sound_played = False
+                    self.current_special_move = None
+                elif self.current_special_move == "駒落ち":
+                    self.komaochi_sound_played = False
+                    self.current_special_move = None
+                
+                self.end_turn()
+                
+    def draw_game_over_message(self):
+        """ゲーム終了メッセージの表示と音声再生"""
+        if self.game_over:
+            # BGM停止（一度だけ）
+            if self.bgm_manager and not self.toryo_sound_played:
+                self.bgm_manager.stop_bgm()
+                
+            # 投了音声を再生（一度だけ）
+            if not self.toryo_sound_played:
+                self.play_toryo_sound()
+                self.toryo_sound_played = True
+                
+            # 勝者メッセージの表示
+            if self.winner:
+                winner_name = "先手番" if self.winner == 1 else "後手番"
+                if self.checkmate:
+                    game_over_text = f"詰み！！{winner_name}の勝ち！！"
+                else:
+                    game_over_text = f"{winner_name}の勝ち！！"
+            else:
+                game_over_text = "ゲーム終了"
+                
+            text = self.font.render(game_over_text, True, (255, 0, 0))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 30))
+            self.screen.blit(text, text_rect)
+            
+            return True  # 「最初に戻る」ボタンを表示するためのフラグ
+        else:
+            # ゲーム終了でない場合はフラグをリセット
+            self.toryo_sound_played = False
+            return False
+    
+    def draw_check_message(self):
+        """王手メッセージの表示と音声再生"""
+        if self.in_check and not self.game_over and not self.special_move_active:
+            # 「王手！！」の文字を表示
+            check_text = "王手！！"
+            text = self.font.render(check_text, True, (255, 0, 0))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 30))
+            self.screen.blit(text, text_rect)
+            
+            # 王手音声を再生（一度だけ）
+            if not self.oute_sound_played:
+                self.play_oute_sound()
+                self.oute_sound_played = True
+        else:
+            # 王手状態でない場合はフラグをリセット
+            self.oute_sound_played = False
+    
+    def play_komaochi_sound(self):
+        """駒落ち音声を再生"""
+        if self.komaochi_sound:
+            try:
+                self.komaochi_sound.play()
+                print("駒落ち音声を再生しました")
+            except pygame.error as e:
+                print(f"駒落ち音声の再生に失敗しました: {e}")
+        else:
+            print("駒落ち音声が読み込まれていません")
+    
+    def play_tensousouchi_sound(self):
+        """転送装置音声を再生"""
+        if self.tensousouchi_sound:
+            try:
+                self.tensousouchi_sound.play()
+                print("転送装置音声を再生しました")
+            except pygame.error as e:
+                print(f"転送装置音声の再生に失敗しました: {e}")
+        else:
+            print("転送装置音声が読み込まれていません")
+    
+    def play_hengenotsue_sound(self):
+        """変化の杖音声を再生"""
+        if self.hengenotsue_sound:
+            try:
+                self.hengenotsue_sound.play()
+                print("変化の杖音声を再生しました")
+            except pygame.error as e:
+                print(f"変化の杖音声の再生に失敗しました: {e}")
+        else:
+            print("変化の杖音声が読み込まれていません")
+    
+    def play_toppu_sound(self):
+        """突風音声を再生"""
+        if self.toppu_sound:
+            try:
+                self.toppu_sound.play()
+                print("突風音声を再生しました")
+            except pygame.error as e:
+                print(f"突風音声の再生に失敗しました: {e}")
+        else:
+            print("突風音声が読み込まれていません")
+    
+    def play_menko_sound(self):
+        """メンコ音声を再生"""
+        if self.menko_sound:
+            try:
+                self.menko_sound.play()
+                print("メンコ音声を再生しました")
+            except pygame.error as e:
+                print(f"メンコ音声の再生に失敗しました: {e}")
+        else:
+            print("メンコ音声が読み込まれていません")
+    
+    def play_toryo_sound(self):
+        """投了音声を再生"""
+        if self.toryo_sound:
+            try:
+                self.toryo_sound.play()
+                print("投了音声を再生しました")
+            except pygame.error as e:
+                print(f"投了音声の再生に失敗しました: {e}")
+        else:
+            print("投了音声が読み込まれていません")
+    
+    def play_oute_sound(self):
+        """王手音声を再生"""
+        if self.oute_sound:
+            try:
+                self.oute_sound.play()
+                print("王手音声を再生しました")
+            except pygame.error as e:
+                print(f"王手音声の再生に失敗しました: {e}")
+        else:
+            print("王手音声が読み込まれていません")
+    
+    def can_change_turn(self):
+        """手番交代が可能かどうか"""
+        return not self.special_effect_pending
+    
+    def is_computer_player(self, player):
+        """指定したプレイヤーがコンピュータかどうかを判定"""
+        # 先手（player=1）がコンピュータ
+        return player == 1
+    
     def setup_board(self):
         # 駒の初期配置
         # 歩兵
@@ -87,6 +264,94 @@ class Board:
         # 角行
         self.grid[1][7] = Piece("bishop", "角", player=1)
         self.grid[7][1] = Piece("bishop", "角", player=2)
+        
+    def setup_random_endgame(self):
+        """ランダムな終盤状態を生成する"""
+        import random
+        
+        # 盤面をクリア
+        self.grid = [[None for _ in range(9)] for _ in range(9)]
+        
+        # 両者の王/玉は必ず配置
+        self.grid[0][4] = Piece("king", "王", player=1)  # 先手の王
+        self.grid[8][4] = Piece("king", "玉", player=2)  # 後手の玉
+        
+        # 残りの駒をランダムに配置（少数）
+        remaining_pieces = [
+            ("gold", "金"), ("silver", "銀"), ("rook", "飛"), 
+            ("bishop", "角"), ("pawn", "歩"), ("lance", "香"),
+            ("knight", "桂")
+        ]
+        
+        # 成り駒も含める
+        promoted_pieces = [
+            ("rook", "飛", True), ("bishop", "角", True),
+            ("silver", "銀", True), ("pawn", "歩", True),
+            ("lance", "香", True), ("knight", "桂", True)
+        ]
+        
+        # 先手の駒を3-5個ランダムに配置
+        num_pieces = random.randint(3, 5)
+        for _ in range(num_pieces):
+            # 通常の駒か成り駒かをランダムに決定
+            if random.random() < 0.3:  # 30%の確率で成り駒
+                piece_type, kanji, promoted = random.choice(promoted_pieces)
+                row = random.randint(0, 8)  # 成り駒は盤上のどこにでも配置可能
+            else:
+                piece_type, kanji = random.choice(remaining_pieces)
+                promoted = False
+                row = random.randint(0, 3)  # 通常の駒は自陣側に配置
+                
+            col = random.randint(0, 8)
+            # 既に駒がある場合や王/玉の位置は避ける
+            if self.grid[row][col] is None and not (row == 0 and col == 4) and not (row == 8 and col == 4):
+                self.grid[row][col] = Piece(piece_type, kanji, is_promoted=promoted, player=1)
+        
+        # 後手の駒を2-4個ランダムに配置
+        num_pieces = random.randint(2, 4)
+        for _ in range(num_pieces):
+            # 通常の駒か成り駒かをランダムに決定
+            if random.random() < 0.3:  # 30%の確率で成り駒
+                piece_type, kanji, promoted = random.choice(promoted_pieces)
+                row = random.randint(0, 8)  # 成り駒は盤上のどこにでも配置可能
+            else:
+                piece_type, kanji = random.choice(remaining_pieces)
+                promoted = False
+                row = random.randint(5, 8)  # 通常の駒は自陣側に配置
+                
+            col = random.randint(0, 8)
+            # 既に駒がある場合や王/玉の位置は避ける
+            if self.grid[row][col] is None and not (row == 0 and col == 4) and not (row == 8 and col == 4):
+                self.grid[row][col] = Piece(piece_type, kanji, is_promoted=promoted, player=2)
+        
+        # 持ち駒もランダムに設定
+        self.captured_pieces = {1: [], 2: []}
+        for player in [1, 2]:
+            num_captured = random.randint(1, 3)
+            for _ in range(num_captured):
+                piece_type, kanji = random.choice(remaining_pieces)
+                self.captured_pieces[player].append(Piece(piece_type, kanji, player=player))
+        
+        # 王手状態のチェックと修正
+        for player in [1, 2]:
+            # 王手状態かチェック
+            if self.is_in_check(player):
+                # 王手をかけている駒を特定
+                attacking_pieces = self.find_attacking_pieces(player)
+                
+                for piece_pos in attacking_pieces:
+                    # 駒を取り除く
+                    row, col = piece_pos
+                    piece = self.grid[row][col]
+                    self.grid[row][col] = None
+                    
+                    # 持ち駒に追加
+                    opponent = 3 - player
+                    self.captured_pieces[opponent].append(piece)
+                    
+                    # 再度王手チェック
+                    if not self.is_in_check(player):
+                        break  # 王手が解消されたら終了
 
     def draw(self):
         # 盤の描画
@@ -121,52 +386,22 @@ class Board:
                 if self.grid[row][col]:
                     self.grid[row][col].draw(self.screen, x, y, self.piece_images, self.font, SELECTED_COLOR)
                     
-                    # 特殊技の確認中で、対象の駒の場合はハイライト
-                    if self.special_move_confirm and self.special_move_target == (row, col):
-                        highlight = pygame.Surface((CELL_SIZE, CELL_SIZE), pygame.SRCALPHA)
-                        highlight.fill((255, 255, 0, 100))  # 黄色のハイライト
-                        self.screen.blit(highlight, (x, y))
-                    
-                    # 特殊技選択中で、選択可能な駒をハイライト
-                    elif self.special_move_active and not self.special_move_confirm:
-                        piece = self.grid[row][col]
-                        if piece.player == self.player_turn:
-                            # 特殊技の種類に応じた対象駒のチェック
-                            if self.special_move_active.name == "歩強化" and piece.name == "pawn" and not piece.is_promoted:
-                                highlight = pygame.Surface((CELL_SIZE, CELL_SIZE), pygame.SRCALPHA)
-                                highlight.fill((0, 255, 0, 50))  # 緑色のハイライト
-                                self.screen.blit(highlight, (x, y))
-        
         # 持ち駒の描画
         self.draw_captured_pieces()
         
         # 手番表示
-        turn_text = "先手番" if self.player_turn == 1 else "後手番"
+        turn_text = "先手番↓" if self.player_turn == 1 else "後手番↑"
         text = self.font.render(turn_text, True, (0, 0, 0))
-        self.screen.blit(text, (20, 20))
-        
+        if self.player_turn == 1:
+            self.screen.blit(text, (20, 90))
+        else:
+            self.screen.blit(text, (20, SCREEN_HEIGHT - 90))
+
         # ターン数表示
         turn_count_text = f"ターン: {self.turn_count}"
         text = self.font.render(turn_count_text, True, (0, 0, 0))
-        self.screen.blit(text, (SCREEN_WIDTH - 150, 20))
+        self.screen.blit(text, (SCREEN_WIDTH - 150, 150))
         
-        # 特殊技選択中の場合、「技選択に戻る」ボタンを表示
-        if self.special_move_active and not self.special_move_confirm:
-            self.back_to_special_move_button.draw(self.screen, self.font)
-            
-            # 技の説明を表示
-            instruction_text = f"「{self.special_move_active.name}」を適用する駒を選択してください"
-            text = self.font.render(instruction_text, True, (200, 0, 0))
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 30))
-            self.screen.blit(text, text_rect)
-            
-            # 歩強化の場合は追加の説明
-            if self.special_move_active.name == "歩強化":
-                sub_text = "※歩のみ選択可能です"
-                text = self.font.render(sub_text, True, (200, 0, 0))
-                text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 60))
-                self.screen.blit(text, text_rect)
-            
         # 特殊技確認中の場合、確認メッセージと「はい」「いいえ」ボタンを表示
         if self.special_move_confirm:
             # 半透明の背景
@@ -180,9 +415,7 @@ class Board:
             pygame.draw.rect(self.screen, (0, 0, 0), message_bg, 2)
             
             # 確認メッセージ
-            row, col = self.special_move_target
-            piece = self.grid[row][col]
-            message_text = f"この{piece.kanji}に「{self.special_move_active.name}」を使いますか？"
+            message_text = f"「{self.special_move_active.name}」を使用しますか？"
             text = self.font.render(message_text, True, (0, 0, 0))
             text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 30))
             self.screen.blit(text, text_rect)
@@ -191,25 +424,18 @@ class Board:
             self.confirm_yes_button.draw(self.screen, self.font)
             self.confirm_no_button.draw(self.screen, self.font)
         
-        # 王手・詰み・ゲーム終了の表示
-        if self.game_over:
-            if self.winner:
-                winner_text = "先手番" if self.winner == 1 else "後手番"
-                if self.checkmate:
-                    result_text = f"詰み！！{winner_text}の勝ち！！"
-                else:
-                    result_text = f"{winner_text}の勝ち！！"
-                text = self.font.render(result_text, True, (255, 0, 0))
-                text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 30))
-                self.screen.blit(text, text_rect)
-                
-                # 「最初に戻る」ボタンの表示
-                return True
-        elif self.in_check and not self.special_move_active:
-            check_text = "王手！！"
-            text = self.font.render(check_text, True, (255, 0, 0))
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 30))
-            self.screen.blit(text, text_rect)
+        # ゲーム終了メッセージの表示と音声再生
+        show_restart = self.draw_game_over_message()
+        if show_restart:
+            return True
+        
+        # 王手メッセージの表示と音声再生
+        self.draw_check_message()
+        
+        # エフェクトの更新と描画
+        if self.effect_display:
+            self.effect_display.update()
+            self.effect_display.draw()
             
         return False
         
@@ -219,7 +445,7 @@ class Board:
             row = i // 2  # 2駒ごとに行を変える
             col = i % 2   # 列は0か1
             x = 20 + col * (CELL_SIZE + 5)
-            y = 50 + row * (CELL_SIZE + 5)
+            y = 150 + row * (CELL_SIZE + 5)
             piece.draw(self.screen, x, y, self.piece_images, self.font, SELECTED_COLOR)
         
         # 後手の持ち駒（画面右側、右下から）
@@ -249,7 +475,7 @@ class Board:
             row = i // 2  # 2駒ごとに行を変える
             col = i % 2   # 列は0か1
             x = 20 + col * (CELL_SIZE + 5)
-            y = 50 + row * (CELL_SIZE + 5)
+            y = 150 + row * (CELL_SIZE + 5)
             piece_rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
             
             if piece_rect.collidepoint(mouse_pos):
@@ -366,12 +592,12 @@ class Board:
                 if self.grid[row][col] is None:
                     # 歩と香車は1段目（後手は9段目）に打てない
                     if piece.name == "pawn" or piece.name == "lance":
-                        if (piece.player == 1 and row == 0) or (piece.player == 2 and row == 8):
+                        if (piece.player == 2 and row == 0) or (piece.player == 1 and row == 8):
                             continue
                     
                     # 桂馬は1、2段目（後手は8、9段目）に打てない
                     if piece.name == "knight":
-                        if (piece.player == 1 and row <= 1) or (piece.player == 2 and row >= 7):
+                        if (piece.player == 2 and row <= 1) or (piece.player == 1 and row >= 7):
                             continue
                     
                     # 二歩のチェック（同じ筋に自分の歩がないか）
@@ -530,6 +756,31 @@ class Board:
                         return True
         
         return False
+        
+    def find_attacking_pieces(self, player):
+        """プレイヤーの王/玉に王手をかけている相手の駒の位置を返す"""
+        attacking_pieces = []
+        
+        # 王/玉の位置を特定
+        king_pos = self.find_king_position(player)
+        if not king_pos:
+            return []
+            
+        king_row, king_col = king_pos
+        opponent = 3 - player  # 相手プレイヤー
+        
+        # 盤面上の全ての相手の駒をチェック
+        for row in range(9):
+            for col in range(9):
+                piece = self.grid[row][col]
+                if piece and piece.player == opponent:
+                    # この駒が王/玉に到達可能かチェック
+                    moves = piece.get_possible_moves(self, (row, col))
+                    if (king_row, king_col) in moves:
+                        attacking_pieces.append((row, col))
+                        
+        return attacking_pieces
+        
     def is_in_check(self, player):
         """指定したプレイヤーが王手状態かどうかをチェック"""
         # 王の位置を取得
@@ -620,9 +871,13 @@ class Board:
         result = special_move.execute(self, self.player_turn, target_pos)
         if result:
             # 特殊技の使用に成功
+            from special_moves import mark_as_used
+            mark_as_used(self.special_move_active.name)
             self.special_move_active = None
-            # ターンを終了する（特殊技を使うとターンが終わる）
-            self.end_turn()
+            
+            # エフェクト待機状態に設定（手番交代を遅延）
+            self.special_effect_pending = True
+            
             return True
         return False
 
@@ -631,6 +886,17 @@ class Board:
         # プレイヤーターンの切り替え
         self.player_turn = 3 - self.player_turn  # 1→2, 2→1
         self.current_player = self.player_turn
+        
+        # 王手音声フラグをリセット（新しい手番で王手になった場合に再生するため）
+        self.oute_sound_played = False
+        
+        # 特殊技音声フラグをリセット
+        self.menko_sound_played = False
+        self.toppu_sound_played = False
+        self.hengenotsue_sound_played = False
+        self.tensousouchi_sound_played = False
+        self.komaochi_sound_played = False
+        self.current_special_move = None
         
         # 手数カウンターを増やす
         self.move_count += 1
@@ -642,13 +908,6 @@ class Board:
             # ターン数を増やす
             self.turn_count += 1
             
-            # 特殊効果の持続時間を減らす（新規フラグの処理は各駒のupdate_effectsで行う）
-            for row in range(9):
-                for col in range(9):
-                    piece = self.grid[row][col]
-                    if piece:
-                        piece.update_effects()
-        
         # 王手判定
         self.check_for_check()
         
@@ -671,11 +930,18 @@ class Board:
         self.special_move_active = None
         # 特殊技ウィンドウを再度開く処理は main.py で行う
         print("技選択をキャンセルしました")
+        
+    def resign(self):
+        """現在のプレイヤーが投了する"""
+        # 現在のプレイヤーの相手を勝者とする
+        self.winner = 3 - self.player_turn
+        self.game_over = True
+        
+        # 勝者のメッセージは通常のdrawメソッドで表示される
     def confirm_special_move(self):
         """特殊技の適用を確定する"""
-        if self.special_move_active and self.special_move_target:
-            # 特殊技を適用
-            result = self.apply_special_move(self.special_move_active, self.special_move_target)
+        if self.special_move_active:
+            result = self.apply_special_move(self.special_move_active)    
             # 確認状態をリセット
             self.special_move_confirm = False
             self.special_move_target = None
@@ -686,3 +952,7 @@ class Board:
         """特殊技の確認をキャンセルする"""
         self.special_move_confirm = False
         self.special_move_target = None
+        
+        # メンコ、突風、変化の杖、転送装置、駒落ちの場合は特殊技選択もキャンセルする
+        if self.special_move_active and (self.special_move_active.name == "メンコ" or self.special_move_active.name == "突風" or self.special_move_active.name == "変化の杖" or self.special_move_active.name == "転送装置" or self.special_move_active.name == "駒落ち"):
+            self.special_move_active = None
