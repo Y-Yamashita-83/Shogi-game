@@ -1,7 +1,1167 @@
 """
-将棋ゲームのAIプレイヤーを実装するモジュール（Phase 1 Step 3: 王手回避強化版）
+将棋ゲームのAIプレイヤーを実装するモジュール（Phase C: 高度な機能版）
 """
 import random
+import time
+
+class TacticsEngine:
+    """戦術パターン認識エンジン"""
+    
+    def __init__(self, evaluator):
+        self.evaluator = evaluator
+        self.setup_tactical_patterns()
+        
+    def setup_tactical_patterns(self):
+        """戦術パターンの定義"""
+        self.tactical_bonuses = {
+            "fork": 300,           # フォーク（両取り）
+            "pin": 200,            # ピン（釘付け）
+            "skewer": 250,         # スキュワー（串刺し）
+            "discovered_attack": 180,  # 開き王手・開き攻撃
+            "double_attack": 220,  # 両王手
+            "sacrifice": 400,      # 捨て駒戦術
+            "promotion_threat": 150, # 成り込み脅威
+        }
+        
+    def evaluate_tactics(self, board, move):
+        """戦術的価値を総合評価"""
+        total_score = 0
+        
+        # 各戦術パターンをチェック
+        if self._detect_fork(board, move):
+            total_score += self.tactical_bonuses["fork"]
+            
+        if self._detect_pin(board, move):
+            total_score += self.tactical_bonuses["pin"]
+            
+        if self._detect_skewer(board, move):
+            total_score += self.tactical_bonuses["skewer"]
+            
+        if self._detect_discovered_attack(board, move):
+            total_score += self.tactical_bonuses["discovered_attack"]
+            
+        if self._detect_double_attack(board, move):
+            total_score += self.tactical_bonuses["double_attack"]
+            
+        if self._detect_sacrifice_pattern(board, move):
+            total_score += self.tactical_bonuses["sacrifice"]
+            
+        if self._detect_promotion_threat(board, move):
+            total_score += self.tactical_bonuses["promotion_threat"]
+            
+        return total_score
+        
+    def _detect_fork(self, board, move):
+        """フォーク（両取り）の検出"""
+        if move['type'] != 'move':
+            return False
+            
+        to_row, to_col = move['to']
+        piece = move['piece']
+        
+        # 移動後の攻撃可能位置を取得
+        try:
+            attack_positions = piece.get_possible_moves(board, (to_row, to_col))
+        except:
+            return False
+            
+        # 攻撃可能な敵駒をカウント
+        valuable_targets = 0
+        for attack_row, attack_col in attack_positions:
+            target = board.grid[attack_row][attack_col]
+            if target and target.player != piece.player:
+                # 価値の高い駒（金以上）を対象とする
+                if target.name in ["gold", "bishop", "rook", "king"]:
+                    valuable_targets += 1
+                    
+        return valuable_targets >= 2
+        
+    def _detect_pin(self, board, move):
+        """ピン（釘付け）の検出"""
+        if move['type'] != 'move':
+            return False
+            
+        to_row, to_col = move['to']
+        piece = move['piece']
+        
+        # 飛車・角・香車のみがピンを作れる
+        if piece.name not in ["rook", "bishop", "lance"]:
+            return False
+            
+        # 移動後の攻撃ライン上に敵の重要駒があるかチェック
+        return self._check_pin_line(board, (to_row, to_col), piece)
+        
+    def _check_pin_line(self, board, pos, piece):
+        """ピンラインの確認"""
+        row, col = pos
+        directions = []
+        
+        # 駒種別の攻撃方向
+        if piece.name == "rook":
+            directions = [(0,1), (0,-1), (1,0), (-1,0)]
+        elif piece.name == "bishop":
+            directions = [(1,1), (1,-1), (-1,1), (-1,-1)]
+        elif piece.name == "lance":
+            if piece.player == 1:
+                directions = [(-1,0)]  # 先手香車は上方向
+            else:
+                directions = [(1,0)]   # 後手香車は下方向
+                
+        for dr, dc in directions:
+            if self._check_direction_for_pin(board, row, col, dr, dc, piece.player):
+                return True
+                
+        return False
+        
+    def _check_direction_for_pin(self, board, start_row, start_col, dr, dc, player):
+        """特定方向のピンチェック"""
+        pieces_found = []
+        
+        row, col = start_row + dr, start_col + dc
+        while 0 <= row < 9 and 0 <= col < 9:
+            piece = board.grid[row][col]
+            if piece:
+                pieces_found.append(piece)
+                if len(pieces_found) >= 2:
+                    break
+            row += dr
+            col += dc
+            
+        # ピン成立条件：敵駒→敵の重要駒の順
+        if len(pieces_found) >= 2:
+            first_piece, second_piece = pieces_found[0], pieces_found[1]
+            if (first_piece.player != player and 
+                second_piece.player != player and
+                second_piece.name in ["king", "rook", "bishop"]):
+                return True
+                
+        return False
+        
+    def _detect_skewer(self, board, move):
+        """スキュワー（串刺し）の検出"""
+        # ピンと似ているが、重要駒→価値の低い駒の順
+        if move['type'] != 'move':
+            return False
+            
+        to_row, to_col = move['to']
+        piece = move['piece']
+        
+        if piece.name not in ["rook", "bishop", "lance"]:
+            return False
+            
+        return self._check_skewer_line(board, (to_row, to_col), piece)
+        
+    def _check_skewer_line(self, board, pos, piece):
+        """スキュワーラインの確認"""
+        row, col = pos
+        directions = []
+        
+        if piece.name == "rook":
+            directions = [(0,1), (0,-1), (1,0), (-1,0)]
+        elif piece.name == "bishop":
+            directions = [(1,1), (1,-1), (-1,1), (-1,-1)]
+        elif piece.name == "lance":
+            if piece.player == 1:
+                directions = [(-1,0)]
+            else:
+                directions = [(1,0)]
+                
+        for dr, dc in directions:
+            pieces_found = []
+            r, c = row + dr, col + dc
+            
+            while 0 <= r < 9 and 0 <= c < 9:
+                p = board.grid[r][c]
+                if p and p.player != piece.player:
+                    pieces_found.append(p)
+                    if len(pieces_found) >= 2:
+                        break
+                elif p:  # 味方駒で遮られる
+                    break
+                r += dr
+                c += dc
+                
+            # スキュワー成立：重要駒→価値の低い駒
+            if len(pieces_found) >= 2:
+                first, second = pieces_found[0], pieces_found[1]
+                if (first.name in ["king", "rook", "bishop"] and
+                    self.evaluator.piece_values[first.name] > self.evaluator.piece_values[second.name]):
+                    return True
+                    
+        return False
+        
+    def _detect_discovered_attack(self, board, move):
+        """開き攻撃の検出"""
+        if move['type'] != 'move':
+            return False
+            
+        from_row, from_col = move['from']
+        
+        # 移動元から味方の大駒（飛車・角・香）への直線上に敵駒があるかチェック
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if (piece and piece.player == move['piece'].player and 
+                    piece.name in ["rook", "bishop", "lance"]):
+                    
+                    if self._is_on_attack_line(from_row, from_col, row, col, piece):
+                        # 開き攻撃の可能性をチェック
+                        if self._check_discovered_line(board, (row, col), (from_row, from_col), piece):
+                            return True
+                            
+        return False
+        
+    def _is_on_attack_line(self, from_row, from_col, piece_row, piece_col, piece):
+        """駒が攻撃ライン上にあるかチェック"""
+        dr = from_row - piece_row
+        dc = from_col - piece_col
+        
+        if dr == 0 and dc == 0:
+            return False
+            
+        # 駒種別の攻撃方向チェック
+        if piece.name == "rook":
+            return dr == 0 or dc == 0
+        elif piece.name == "bishop":
+            return abs(dr) == abs(dc)
+        elif piece.name == "lance":
+            if piece.player == 1:
+                return dc == 0 and dr > 0
+            else:
+                return dc == 0 and dr < 0
+                
+        return False
+        
+    def _check_discovered_line(self, board, piece_pos, blocking_pos, piece):
+        """開き攻撃ラインの確認"""
+        # 実装簡略化：基本的な開き攻撃のみ検出
+        return True  # 詳細実装は省略
+        
+    def _detect_double_attack(self, board, move):
+        """両王手・両攻撃の検出"""
+        if move['type'] != 'move':
+            return False
+            
+        # 移動する駒と開き攻撃で同時に攻撃
+        return (self._gives_check_directly(board, move) and 
+                self._detect_discovered_attack(board, move))
+        
+    def _gives_check_directly(self, board, move):
+        """直接王手をかけるかチェック"""
+        to_row, to_col = move['to']
+        piece = move['piece']
+        
+        # 相手の王の位置を探す
+        enemy_king_pos = None
+        for row in range(9):
+            for col in range(9):
+                p = board.grid[row][col]
+                if p and p.name == "king" and p.player != piece.player:
+                    enemy_king_pos = (row, col)
+                    break
+                    
+        if not enemy_king_pos:
+            return False
+            
+        # 移動後に王を攻撃できるかチェック
+        try:
+            attack_positions = piece.get_possible_moves(board, (to_row, to_col))
+            return enemy_king_pos in attack_positions
+        except:
+            return False
+            
+    def _detect_sacrifice_pattern(self, board, move):
+        """捨て駒戦術の検出"""
+        if move['type'] != 'move':
+            return False
+            
+        to_row, to_col = move['to']
+        piece = move['piece']
+        
+        # 移動先が敵の攻撃範囲にある場合
+        if self._is_square_attacked(board, (to_row, to_col), 3 - piece.player):
+            # 捨て駒による利益があるかチェック
+            return self._evaluate_sacrifice_benefit(board, move)
+            
+        return False
+        
+    def _is_square_attacked(self, board, pos, by_player):
+        """指定位置が指定プレイヤーに攻撃されているかチェック"""
+        row, col = pos
+        
+        for r in range(9):
+            for c in range(9):
+                piece = board.grid[r][c]
+                if piece and piece.player == by_player:
+                    try:
+                        attacks = piece.get_possible_moves(board, (r, c))
+                        if (row, col) in attacks:
+                            return True
+                    except:
+                        continue
+                        
+        return False
+        
+    def _evaluate_sacrifice_benefit(self, board, move):
+        """捨て駒による利益を評価"""
+        # 簡易実装：王手や重要駒への攻撃があれば利益ありと判定
+        return (self._gives_check_directly(board, move) or 
+                self._detect_fork(board, move))
+        
+    def _detect_promotion_threat(self, board, move):
+        """成り込み脅威の検出"""
+        if move['type'] != 'move':
+            return False
+            
+        to_row, to_col = move['to']
+        piece = move['piece']
+        
+        # 成れる駒かチェック
+        if piece.name in ["king", "gold"] or piece.is_promoted:
+            return False
+            
+        # 敵陣に入るかチェック
+        if ((piece.player == 1 and to_row <= 2) or 
+            (piece.player == 2 and to_row >= 6)):
+            
+            # 成ることで大幅に価値が上がる駒
+            if piece.name in ["pawn", "lance", "knight", "silver", "bishop", "rook"]:
+                return True
+                
+        return False
+
+
+class EndgameEngine:
+    """終盤特化エンジン"""
+    
+    def __init__(self, evaluator):
+        self.evaluator = evaluator
+        self.mate_search_depth = 7  # 詰み探索の深度
+        
+    def search_mate(self, board, max_depth=None):
+        """詰み探索"""
+        if max_depth is None:
+            max_depth = self.mate_search_depth
+            
+        return self._mate_search_recursive(board, max_depth, True)
+        
+    def _mate_search_recursive(self, board, depth, is_attacking):
+        """再帰的詰み探索"""
+        if depth == 0:
+            return None
+            
+        if is_attacking:
+            # 攻撃側：王手をかける手を探す
+            possible_moves = self._get_checking_moves(board)
+            
+            for move in possible_moves:
+                # 手を実行
+                original_state = self._save_state(board)
+                self._execute_move_simple(board, move)
+                
+                try:
+                    # 相手の応手を確認
+                    board.player_turn = 3 - board.player_turn
+                    defense_moves = self._get_all_legal_moves(board)
+                    
+                    if not defense_moves:
+                        # 詰み発見
+                        return [move]
+                        
+                    # 全ての応手に対して詰みが続くかチェック
+                    mate_continues = True
+                    for defense_move in defense_moves:
+                        defense_state = self._save_state(board)
+                        self._execute_move_simple(board, defense_move)
+                        
+                        try:
+                            board.player_turn = 3 - board.player_turn
+                            continuation = self._mate_search_recursive(board, depth - 1, True)
+                            if continuation is None:
+                                mate_continues = False
+                                self._restore_state(board, defense_state)
+                                break
+                        finally:
+                            self._restore_state(board, defense_state)
+                            
+                    if mate_continues:
+                        # 詰み手順発見
+                        return [move]
+                        
+                finally:
+                    self._restore_state(board, original_state)
+                    
+        return None
+        
+    def _get_checking_moves(self, board):
+        """王手をかける手のみを取得"""
+        checking_moves = []
+        
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.player == board.player_turn:
+                    try:
+                        moves = piece.get_possible_moves(board, (row, col))
+                        for move_row, move_col in moves:
+                            move = {
+                                'type': 'move',
+                                'from': (row, col),
+                                'to': (move_row, move_col),
+                                'piece': piece
+                            }
+                            if self._gives_check(board, move):
+                                checking_moves.append(move)
+                    except:
+                        continue
+                        
+        # 持ち駒による王手
+        for i, piece in enumerate(board.captured_pieces[board.player_turn]):
+            try:
+                drop_positions = board.get_valid_drop_positions(piece)
+                for drop_row, drop_col in drop_positions:
+                    move = {
+                        'type': 'drop',
+                        'piece_index': i,
+                        'to': (drop_row, drop_col),
+                        'piece': piece
+                    }
+                    if self._gives_check_after_drop(board, move):
+                        checking_moves.append(move)
+            except:
+                continue
+                
+        return checking_moves
+        
+    def _gives_check(self, board, move):
+        """手が王手をかけるかチェック"""
+        to_row, to_col = move['to']
+        piece = move['piece']
+        
+        enemy_king_pos = self._find_enemy_king(board, piece.player)
+        if not enemy_king_pos:
+            return False
+            
+        try:
+            attack_positions = piece.get_possible_moves(board, (to_row, to_col))
+            return enemy_king_pos in attack_positions
+        except:
+            return False
+            
+    def _gives_check_after_drop(self, board, move):
+        """持ち駒配置後に王手をかけるかチェック"""
+        to_row, to_col = move['to']
+        piece = move['piece']
+        
+        enemy_king_pos = self._find_enemy_king(board, piece.player)
+        if not enemy_king_pos:
+            return False
+            
+        try:
+            attack_positions = piece.get_possible_moves(board, (to_row, to_col))
+            return enemy_king_pos in attack_positions
+        except:
+            return False
+            
+    def _find_enemy_king(self, board, player):
+        """敵の王の位置を探す"""
+        enemy_player = 3 - player
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name == "king" and piece.player == enemy_player:
+                    return (row, col)
+        return None
+        
+    def _get_all_legal_moves(self, board):
+        """全ての合法手を取得（簡易版）"""
+        moves = []
+        
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.player == board.player_turn:
+                    try:
+                        piece_moves = piece.get_possible_moves(board, (row, col))
+                        for move_row, move_col in piece_moves:
+                            moves.append({
+                                'type': 'move',
+                                'from': (row, col),
+                                'to': (move_row, move_col),
+                                'piece': piece
+                            })
+                    except:
+                        continue
+                        
+        for i, piece in enumerate(board.captured_pieces[board.player_turn]):
+            try:
+                drop_positions = board.get_valid_drop_positions(piece)
+                for drop_row, drop_col in drop_positions:
+                    moves.append({
+                        'type': 'drop',
+                        'piece_index': i,
+                        'to': (drop_row, drop_col),
+                        'piece': piece
+                    })
+            except:
+                continue
+                
+        return moves
+        
+    def _save_state(self, board):
+        """簡易状態保存"""
+        grid_copy = []
+        for row in board.grid:
+            grid_copy.append(row[:])
+            
+        return {
+            'grid': grid_copy,
+            'player_turn': board.player_turn,
+            'captured_pieces': {
+                1: board.captured_pieces[1][:],
+                2: board.captured_pieces[2][:]
+            }
+        }
+        
+    def _restore_state(self, board, state):
+        """簡易状態復元"""
+        board.grid = state['grid']
+        board.player_turn = state['player_turn']
+        board.captured_pieces = state['captured_pieces']
+        
+    def _execute_move_simple(self, board, move):
+        """簡易手実行"""
+        if move['type'] == 'move':
+            from_row, from_col = move['from']
+            to_row, to_col = move['to']
+            
+            piece = board.grid[from_row][from_col]
+            captured = board.grid[to_row][to_col]
+            
+            board.grid[from_row][from_col] = None
+            board.grid[to_row][to_col] = piece
+            
+            if captured:
+                captured.is_promoted = False
+                board.captured_pieces[board.player_turn].append(captured)
+                
+        elif move['type'] == 'drop':
+            piece_index = move['piece_index']
+            to_row, to_col = move['to']
+            
+            if piece_index < len(board.captured_pieces[board.player_turn]):
+                piece = board.captured_pieces[board.player_turn][piece_index]
+                board.grid[to_row][to_col] = piece
+                
+    def evaluate_endgame_position(self, board, player):
+        """終盤局面の特別評価"""
+        score = 0
+        
+        if self._is_near_mate(board, player):
+            score += 1000
+        elif self._is_near_mate(board, 3 - player):
+            score -= 1000
+            
+        score += self._evaluate_king_safety_endgame(board, player)
+        score += self._evaluate_captured_pieces_endgame(board, player)
+        
+        return score
+        
+    def _is_near_mate(self, board, player):
+        """詰みに近い状況かチェック"""
+        enemy_king_pos = self._find_enemy_king(board, player)
+        if not enemy_king_pos:
+            return False
+            
+        king_row, king_col = enemy_king_pos
+        escape_squares = 0
+        
+        for dr in [-1, 0, 1]:
+            for dc in [-1, 0, 1]:
+                if dr == 0 and dc == 0:
+                    continue
+                new_row, new_col = king_row + dr, king_col + dc
+                if 0 <= new_row < 9 and 0 <= new_col < 9:
+                    piece = board.grid[new_row][new_col]
+                    if piece is None or piece.player == player:
+                        escape_squares += 1
+                        
+        return escape_squares <= 2
+        
+    def _evaluate_king_safety_endgame(self, board, player):
+        """終盤の王の安全度評価"""
+        king_pos = self._find_king_position(board, player)
+        if not king_pos:
+            return -10000
+            
+        king_row, king_col = king_pos
+        safety_score = 0
+        
+        for dr in [-1, 0, 1]:
+            for dc in [-1, 0, 1]:
+                if dr == 0 and dc == 0:
+                    continue
+                new_row, new_col = king_row + dr, king_col + dc
+                if 0 <= new_row < 9 and 0 <= new_col < 9:
+                    piece = board.grid[new_row][new_col]
+                    if piece and piece.player == player:
+                        safety_score += 20
+                        
+        return safety_score
+        
+    def _evaluate_captured_pieces_endgame(self, board, player):
+        """終盤の持ち駒評価"""
+        score = 0
+        
+        for piece in board.captured_pieces[player]:
+            base_value = self.evaluator.piece_values[piece.name]
+            score += base_value * 1.2
+            
+        for piece in board.captured_pieces[3 - player]:
+            base_value = self.evaluator.piece_values[piece.name]
+            score -= base_value * 1.2
+            
+        return score
+        
+    def _find_king_position(self, board, player):
+        """王の位置を探す"""
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name == "king" and piece.player == player:
+                    return (row, col)
+        return None
+
+
+class OpeningBook:
+    """序盤定跡を管理するクラス"""
+    
+    def __init__(self):
+        self.setup_opening_patterns()
+        self.setup_piece_development_targets()
+        
+    def setup_opening_patterns(self):
+        """基本定跡パターンを設定"""
+        # 居飛車系定跡
+        self.居飛車_基本 = [
+            {"move": "7六歩", "from": (2, 6), "to": (3, 6), "priority": 100},
+            {"move": "2六歩", "from": (2, 2), "to": (3, 2), "priority": 90},
+            {"move": "2五歩", "from": (3, 2), "to": (4, 2), "priority": 85},
+            {"move": "6八銀", "from": (0, 5), "to": (1, 5), "priority": 80},
+            {"move": "7七銀", "from": (1, 5), "to": (2, 5), "priority": 75},
+            {"move": "4八金", "from": (0, 3), "to": (1, 3), "priority": 70},
+        ]
+        
+        # 振り飛車系定跡
+        self.振り飛車_基本 = [
+            {"move": "7六歩", "from": (2, 6), "to": (3, 6), "priority": 100},
+            {"move": "6六歩", "from": (2, 5), "to": (3, 5), "priority": 95},
+            {"move": "飛車6八", "from": (1, 1), "to": (1, 5), "priority": 90},
+            {"move": "6七銀", "from": (0, 5), "to": (2, 5), "priority": 85},
+            {"move": "5八金左", "from": (0, 3), "to": (1, 4), "priority": 80},
+        ]
+        
+        # 角換わり系定跡
+        self.角換わり_基本 = [
+            {"move": "2六歩", "from": (2, 2), "to": (3, 2), "priority": 100},
+            {"move": "2五歩", "from": (3, 2), "to": (4, 2), "priority": 95},
+            {"move": "7六歩", "from": (2, 6), "to": (3, 6), "priority": 90},
+            {"move": "8八角", "from": (1, 7), "to": (0, 7), "priority": 85},
+        ]
+        
+        self.opening_patterns = {
+            "居飛車": self.居飛車_基本,
+            "振り飛車": self.振り飛車_基本,
+            "角換わり": self.角換わり_基本
+        }
+        
+    def setup_piece_development_targets(self):
+        """駒組みの理想的配置を設定"""
+        # 先手の理想的駒組み
+        self.ideal_positions_sente = {
+            "silver": [(2, 5), (2, 3)],  # 銀の理想位置
+            "gold": [(1, 3), (1, 5)],    # 金の理想位置
+            "knight": [(2, 1), (2, 7)],  # 桂の理想位置
+            "bishop": [(2, 6), (3, 5)],  # 角の理想位置
+            "rook": [(1, 1), (1, 5)],    # 飛車の理想位置
+        }
+        
+        # 後手の理想的駒組み（先手を反転）
+        self.ideal_positions_gote = {}
+        for piece_type, positions in self.ideal_positions_sente.items():
+            self.ideal_positions_gote[piece_type] = [(8-row, col) for row, col in positions]
+            
+    def get_opening_move(self, board, move_count):
+        """現在の局面に適した定跡手を返す"""
+        if move_count > 12:  # 序盤12手まで
+            return None
+            
+        # 戦型を判定
+        opening_type = self._analyze_opening_type(board)
+        
+        if opening_type in self.opening_patterns:
+            pattern = self.opening_patterns[opening_type]
+            
+            # パターンから実行可能な手を探す
+            for opening_move in pattern:
+                if self._is_opening_move_valid(board, opening_move):
+                    return self._convert_to_move_format(board, opening_move)
+                    
+        return None
+        
+    def _analyze_opening_type(self, board):
+        """現在の局面から適切な戦型を判断"""
+        # 飛車の位置をチェック
+        rook_pos = self._find_piece_position(board, "rook", board.player_turn)
+        
+        if rook_pos:
+            rook_row, rook_col = rook_pos
+            
+            # 振り飛車判定（飛車が中央寄りにある）
+            if board.player_turn == 1 and rook_col >= 4:  # 先手
+                return "振り飛車"
+            elif board.player_turn == 2 and rook_col <= 4:  # 後手
+                return "振り飛車"
+                
+        # 角の交換があったかチェック
+        if self._is_bishop_exchanged(board):
+            return "角換わり"
+            
+        # デフォルトは居飛車
+        return "居飛車"
+        
+    def _find_piece_position(self, board, piece_name, player):
+        """指定した駒の位置を探す"""
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name == piece_name and piece.player == player:
+                    return (row, col)
+        return None
+        
+    def _is_bishop_exchanged(self, board):
+        """角の交換が行われたかチェック"""
+        # 簡易実装：両者の持ち駒に角があるかチェック
+        player1_has_bishop = any(piece.name == "bishop" for piece in board.captured_pieces[1])
+        player2_has_bishop = any(piece.name == "bishop" for piece in board.captured_pieces[2])
+        
+        return player1_has_bishop or player2_has_bishop
+        
+    def _is_opening_move_valid(self, board, opening_move):
+        """定跡手が実行可能かチェック"""
+        from_pos = opening_move["from"]
+        to_pos = opening_move["to"]
+        
+        # 移動元に駒があるかチェック
+        piece = board.grid[from_pos[0]][from_pos[1]]
+        if not piece or piece.player != board.player_turn:
+            return False
+            
+        # 移動先が空いているかチェック
+        target = board.grid[to_pos[0]][to_pos[1]]
+        if target and target.player == board.player_turn:
+            return False
+            
+        # 合法手かチェック
+        try:
+            possible_moves = piece.get_possible_moves(board, from_pos)
+            return to_pos in possible_moves
+        except:
+            return False
+            
+    def _convert_to_move_format(self, board, opening_move):
+        """定跡手を標準の手形式に変換"""
+        return {
+            'type': 'move',
+            'from': opening_move["from"],
+            'to': opening_move["to"],
+            'piece': board.grid[opening_move["from"][0]][opening_move["from"][1]],
+            'priority': opening_move["priority"]
+        }
+        
+    def evaluate_piece_development(self, board, player):
+        """駒組みの進行度を評価"""
+        score = 0
+        
+        # 理想位置を取得
+        if player == 1:
+            ideal_positions = self.ideal_positions_sente
+        else:
+            ideal_positions = self.ideal_positions_gote
+            
+        # 各駒種の配置を評価
+        for piece_type, ideal_pos_list in ideal_positions.items():
+            current_positions = self._find_all_piece_positions(board, piece_type, player)
+            
+            for current_pos in current_positions:
+                # 最も近い理想位置との距離を計算
+                min_distance = min(
+                    abs(current_pos[0] - ideal[0]) + abs(current_pos[1] - ideal[1])
+                    for ideal in ideal_pos_list
+                )
+                
+                # 距離が近いほど高評価
+                score += max(0, 10 - min_distance * 2)
+                
+        return score
+        
+    def _find_all_piece_positions(self, board, piece_name, player):
+        """指定した駒の全ての位置を探す"""
+        positions = []
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name == piece_name and piece.player == player:
+                    positions.append((row, col))
+        return positions
+
+
+class MoveSearcher:
+    """ミニマックス探索を担当するクラス（アルファベータ枝刈り対応）"""
+    
+    def __init__(self, evaluator, max_depth=4):  # 深度を4に増加
+        self.evaluator = evaluator
+        self.max_depth = max_depth
+        self.tactics_engine = TacticsEngine(evaluator)
+        self.endgame_engine = EndgameEngine(evaluator)
+        
+    def search_best_move(self, board, possible_moves, time_limit=10.0):  # 時間制限を10秒に変更
+        """制限時間内で最適手を探索（アルファベータ枝刈り）"""
+        start_time = time.time()
+        
+        # 時間に応じて探索深度を調整
+        if time_limit <= 1.0:
+            max_depth = 2  # 時間が少ない場合は浅く
+        elif time_limit <= 3.0:
+            max_depth = 3
+        elif time_limit <= 7.0:
+            max_depth = 4
+        else:
+            max_depth = 5  # 時間に余裕がある場合は深く
+            
+        print(f"探索深度: {max_depth}, 制限時間: {time_limit:.1f}秒")
+        
+        # 終盤では詰み探索を優先
+        if self._is_endgame(board):
+            mate_move = self.endgame_engine.search_mate(board, 5)
+            if mate_move:
+                return [mate_move]
+        
+        # 手の順序付け（良い手を先に評価）
+        ordered_moves = self._order_moves(board, possible_moves)
+        
+        best_moves = []
+        best_score = float('-inf')
+        
+        for i, move in enumerate(ordered_moves):
+            # 時間制限チェック（90%の時間を使ったら終了）
+            elapsed = time.time() - start_time
+            if elapsed > time_limit * 0.9:
+                print(f"時間制限により探索終了 ({i+1}/{len(ordered_moves)}手評価済み)")
+                break
+                
+            # 残り時間に応じて探索深度を調整
+            remaining_time = time_limit - elapsed
+            if remaining_time < time_limit * 0.3:  # 残り30%以下なら深度を下げる
+                current_depth = max(1, max_depth - 1)
+            else:
+                current_depth = max_depth
+                
+            # アルファベータ探索で手を評価
+            score = self._alpha_beta_search(board, move, current_depth - 1, 
+                                          float('-inf'), float('inf'), False, 
+                                          start_time, time_limit)
+            
+            if score > best_score:
+                best_score = score
+                best_moves = [move]
+            elif score == best_score:
+                best_moves.append(move)
+                
+        return best_moves if best_moves else [ordered_moves[0]]
+        
+    def _alpha_beta_search(self, board, move, depth, alpha, beta, is_maximizing, start_time, time_limit):
+        """アルファベータ枝刈り探索"""
+        # 時間制限チェック（95%の時間を使ったら即座に終了）
+        elapsed = time.time() - start_time
+        if elapsed > time_limit * 0.95:
+            return self._quick_evaluate(board, move)
+            
+        # 手を実行
+        original_state = self._save_simple_state(board)
+        self._execute_move_simple(board, move)
+        
+        try:
+            # 終端条件
+            if depth == 0 or self._is_terminal_position(board):
+                score = self.evaluator.evaluate_position(board, original_state['original_player'])
+                
+                # 戦術ボーナスを追加
+                tactical_bonus = self.tactics_engine.evaluate_tactics(board, move)
+                score += tactical_bonus
+                
+                # 終盤では特別評価を追加
+                if self._is_endgame(board):
+                    endgame_bonus = self.endgame_engine.evaluate_endgame_position(board, original_state['original_player'])
+                    score += endgame_bonus * 0.3
+                
+                return score
+                
+            # 手番を交代
+            board.player_turn = 3 - board.player_turn
+            
+            # 次の手の候補を取得
+            next_moves = self._get_possible_moves_simple(board)
+            
+            if not next_moves:
+                # 合法手がない場合（詰み）
+                if is_maximizing:
+                    return float('-inf')
+                else:
+                    return float('inf')
+            
+            # 手の順序付け（時間に応じて探索数を制限）
+            remaining_time = time_limit - elapsed
+            if remaining_time < time_limit * 0.5:  # 残り時間が50%以下
+                max_moves = 6  # 上位6手のみ
+            elif remaining_time < time_limit * 0.7:  # 残り時間が70%以下
+                max_moves = 10  # 上位10手のみ
+            else:
+                max_moves = 15  # 上位15手まで
+                
+            ordered_next_moves = self._order_moves(board, next_moves[:max_moves])
+            
+            if is_maximizing:
+                max_eval = float('-inf')
+                for next_move in ordered_next_moves:
+                    eval_score = self._alpha_beta_search(board, next_move, depth - 1, 
+                                                       alpha, beta, False, start_time, time_limit)
+                    max_eval = max(max_eval, eval_score)
+                    alpha = max(alpha, eval_score)
+                    
+                    # ベータカット
+                    if beta <= alpha:
+                        break
+                        
+                return max_eval
+            else:
+                min_eval = float('inf')
+                for next_move in ordered_next_moves:
+                    eval_score = self._alpha_beta_search(board, next_move, depth - 1, 
+                                                       alpha, beta, True, start_time, time_limit)
+                    min_eval = min(min_eval, eval_score)
+                    beta = min(beta, eval_score)
+                    
+                    # アルファカット
+                    if beta <= alpha:
+                        break
+                        
+                return min_eval
+                
+        finally:
+            # 盤面を復元
+            self._restore_simple_state(board, original_state)
+            
+    def _order_moves(self, board, moves):
+        """手の順序付け（良い手を先に評価）"""
+        def move_priority(move):
+            priority = 0
+            
+            # 駒を取る手を優先
+            if move['type'] == 'move':
+                to_row, to_col = move['to']
+                target = board.grid[to_row][to_col]
+                if target and target.player != board.player_turn:
+                    priority += self.evaluator.piece_values[target.name]
+                    
+            # 王手をかける手を優先
+            if self._gives_check_quick(board, move):
+                priority += 500
+                
+            # 中央への手を優先
+            to_pos = move['to']
+            center_distance = abs(to_pos[0] - 4) + abs(to_pos[1] - 4)
+            priority += max(0, 8 - center_distance) * 10
+            
+            return priority
+            
+        return sorted(moves, key=move_priority, reverse=True)
+        
+    def _gives_check_quick(self, board, move):
+        """簡易王手判定"""
+        if move['type'] == 'move':
+            to_row, to_col = move['to']
+            piece = move['piece']
+            
+            # 相手の王の位置を探す
+            enemy_king_pos = None
+            for row in range(9):
+                for col in range(9):
+                    p = board.grid[row][col]
+                    if p and p.name == "king" and p.player != piece.player:
+                        enemy_king_pos = (row, col)
+                        break
+                        
+            if enemy_king_pos:
+                # 距離による簡易判定
+                king_row, king_col = enemy_king_pos
+                distance = abs(to_row - king_row) + abs(to_col - king_col)
+                
+                if piece.name in ["rook", "bishop"] and distance <= 4:
+                    return True
+                elif piece.name in ["gold", "silver"] and distance <= 2:
+                    return True
+                    
+        return False
+        
+    def _is_endgame(self, board):
+        """終盤かどうかの判定"""
+        total_pieces = 0
+        for row in range(9):
+            for col in range(9):
+                if board.grid[row][col]:
+                    total_pieces += 1
+                    
+        return total_pieces <= 16  # 駒が16個以下で終盤
+        
+    def _minimax_search(self, board, move, depth, is_maximizing, start_time, time_limit):
+        """ミニマックス探索（再帰）"""
+        # 時間制限チェック
+        if time.time() - start_time > time_limit:
+            return self._quick_evaluate(board, move)
+            
+        # 手を実行
+        original_state = self._save_simple_state(board)
+        self._execute_move_simple(board, move)
+        
+        try:
+            # 終端条件
+            if depth == 0 or self._is_terminal_position(board):
+                return self.evaluator.evaluate_position(board, original_state['original_player'])
+                
+            # 手番を交代
+            board.player_turn = 3 - board.player_turn
+            
+            # 次の手の候補を取得
+            next_moves = self._get_possible_moves_simple(board)
+            
+            if not next_moves:
+                # 合法手がない場合（詰み）
+                if is_maximizing:
+                    return float('-inf')
+                else:
+                    return float('inf')
+            
+            if is_maximizing:
+                max_eval = float('-inf')
+                for next_move in next_moves[:8]:  # 計算量制限のため上位8手のみ
+                    eval_score = self._minimax_search(board, next_move, depth - 1, False, start_time, time_limit)
+                    max_eval = max(max_eval, eval_score)
+                return max_eval
+            else:
+                min_eval = float('inf')
+                for next_move in next_moves[:8]:  # 計算量制限のため上位8手のみ
+                    eval_score = self._minimax_search(board, next_move, depth - 1, True, start_time, time_limit)
+                    min_eval = min(min_eval, eval_score)
+                return min_eval
+                
+        finally:
+            # 盤面を復元
+            self._restore_simple_state(board, original_state)
+            
+    def _quick_evaluate(self, board, move):
+        """時間制限時の簡易評価"""
+        return self._evaluate_move_basic(board, move)
+        
+    def _evaluate_move_basic(self, board, move):
+        """基本的な手の評価"""
+        score = 0
+        
+        # 駒を取る価値
+        if move['type'] == 'move':
+            to_row, to_col = move['to']
+            target_piece = board.grid[to_row][to_col]
+            if target_piece and target_piece.player != board.player_turn:
+                score += self.evaluator.piece_values[target_piece.name]
+                
+        return score
+        
+    def _is_terminal_position(self, board):
+        """終端局面かどうか"""
+        return board.checkmate or board.game_over
+        
+    def _save_simple_state(self, board):
+        """簡易状態保存"""
+        grid_copy = []
+        for row in board.grid:
+            grid_copy.append(row[:])  # 浅いコピー
+            
+        return {
+            'grid': grid_copy,
+            'player_turn': board.player_turn,
+            'original_player': board.player_turn
+        }
+        
+    def _restore_simple_state(self, board, state):
+        """簡易状態復元"""
+        board.grid = state['grid']
+        board.player_turn = state['player_turn']
+        
+    def _execute_move_simple(self, board, move):
+        """簡易手実行（探索用）"""
+        if move['type'] == 'move':
+            from_row, from_col = move['from']
+            to_row, to_col = move['to']
+            
+            piece = board.grid[from_row][from_col]
+            board.grid[from_row][from_col] = None
+            board.grid[to_row][to_col] = piece
+            
+        elif move['type'] == 'drop':
+            piece_index = move['piece_index']
+            to_row, to_col = move['to']
+            
+            if piece_index < len(board.captured_pieces[board.player_turn]):
+                piece = board.captured_pieces[board.player_turn][piece_index]
+                board.grid[to_row][to_col] = piece
+                
+    def _get_possible_moves_simple(self, board):
+        """簡易合法手生成"""
+        possible_moves = []
+        
+        # 盤上の駒の移動
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.player == board.player_turn:
+                    try:
+                        moves = piece.get_possible_moves(board, (row, col))
+                        for move_row, move_col in moves:
+                            possible_moves.append({
+                                'type': 'move',
+                                'from': (row, col),
+                                'to': (move_row, move_col),
+                                'piece': piece
+                            })
+                    except:
+                        continue
+        
+        # 持ち駒の配置（簡略化）
+        for i, piece in enumerate(board.captured_pieces[board.player_turn][:3]):  # 上位3つのみ
+            try:
+                drop_positions = board.get_valid_drop_positions(piece)
+                for drop_row, drop_col in drop_positions[:5]:  # 上位5箇所のみ
+                    possible_moves.append({
+                        'type': 'drop',
+                        'piece_index': i,
+                        'to': (drop_row, drop_col),
+                        'piece': piece
+                    })
+            except:
+                continue
+        
+        return possible_moves
+
 
 class PositionEvaluator:
     """局面評価を担当するクラス"""
@@ -163,26 +1323,307 @@ class PositionEvaluator:
             row = 8 - row
             
         return table[row][col]
+        
+    def evaluate_position(self, board, player):
+        """総合的な局面評価（序盤強化版）"""
+        # ゲーム段階を判定
+        game_phase = self._determine_game_phase(board)
+        
+        # 基本評価
+        score = self._evaluate_material_and_position(board, player)
+        
+        # 段階別評価を追加
+        if game_phase == "opening":
+            score += self._evaluate_opening_phase(board, player)
+        elif game_phase == "middlegame":
+            score += self._evaluate_middlegame_phase(board, player)
+        else:  # endgame
+            score += self._evaluate_endgame_phase(board, player)
+            
+        return score
+        
+    def _determine_game_phase(self, board):
+        """ゲームの段階を判定"""
+        total_pieces = 0
+        for row in range(9):
+            for col in range(9):
+                if board.grid[row][col]:
+                    total_pieces += 1
+                    
+        if total_pieces > 30:
+            return "opening"
+        elif total_pieces > 20:
+            return "middlegame"
+        else:
+            return "endgame"
+            
+    def _evaluate_material_and_position(self, board, player):
+        """駒得と位置価値の基本評価"""
+        score = 0
+        
+        # 盤上の駒を評価
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece:
+                    piece_value = self.piece_values[piece.name]
+                    
+                    # 成り駒のボーナス
+                    if piece.is_promoted and piece.name in self.promoted_bonus:
+                        piece_value += self.promoted_bonus[piece.name]
+                    
+                    # 位置価値を追加
+                    position_value = self.get_piece_square_value(piece, row, col, piece.player)
+                    piece_value += position_value
+                    
+                    if piece.player == player:
+                        score += piece_value
+                    else:
+                        score -= piece_value
+        
+        # 持ち駒を評価
+        for piece in board.captured_pieces[player]:
+            score += self.piece_values[piece.name] * 0.8
+            
+        for piece in board.captured_pieces[3 - player]:
+            score -= self.piece_values[piece.name] * 0.8
+            
+        return score
+        
+    def _evaluate_opening_phase(self, board, player):
+        """序盤特化評価"""
+        score = 0
+        
+        # 駒組み評価（OpeningBookクラスを使用）
+        # 注意: この時点ではOpeningBookのインスタンスがないので、簡易実装
+        score += self._evaluate_piece_development_simple(board, player)
+        
+        # 中央制圧ボーナス
+        score += self._evaluate_center_control(board, player)
+        
+        # 王の安全確保
+        score += self._evaluate_king_safety_opening(board, player)
+        
+        return score * 0.3  # 序盤評価の重み
+        
+    def _evaluate_middlegame_phase(self, board, player):
+        """中盤特化評価"""
+        score = 0
+        
+        # 攻撃力評価
+        score += self._evaluate_attack_potential(board, player)
+        
+        # 駒の連携評価
+        score += self._evaluate_piece_coordination(board, player)
+        
+        return score * 0.2  # 中盤評価の重み
+        
+    def _evaluate_endgame_phase(self, board, player):
+        """終盤特化評価"""
+        score = 0
+        
+        # 王の活用度（終盤では王も攻撃に参加）
+        score += self._evaluate_king_activity(board, player)
+        
+        # 持ち駒の活用度
+        score += self._evaluate_captured_pieces_activity(board, player)
+        
+        return score * 0.2  # 終盤評価の重み
+        
+    def _evaluate_piece_development_simple(self, board, player):
+        """簡易駒組み評価"""
+        score = 0
+        
+        # 銀が前進しているかチェック
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name == "silver" and piece.player == player:
+                    if player == 1 and row <= 6:  # 先手の銀が前進
+                        score += 20
+                    elif player == 2 and row >= 2:  # 後手の銀が前進
+                        score += 20
+                        
+        # 金が王の近くにいるかチェック
+        king_pos = self._find_king_position(board, player)
+        if king_pos:
+            king_row, king_col = king_pos
+            for row in range(9):
+                for col in range(9):
+                    piece = board.grid[row][col]
+                    if piece and piece.name == "gold" and piece.player == player:
+                        distance = abs(row - king_row) + abs(col - king_col)
+                        if distance <= 2:
+                            score += 15
+                            
+        return score
+        
+    def _evaluate_center_control(self, board, player):
+        """中央制圧評価"""
+        score = 0
+        center_squares = [(4, 4), (4, 5), (5, 4), (5, 5)]
+        
+        for row, col in center_squares:
+            piece = board.grid[row][col]
+            if piece and piece.player == player:
+                score += 25
+            elif piece and piece.player != player:
+                score -= 15
+                
+        return score
+        
+    def _evaluate_king_safety_opening(self, board, player):
+        """序盤の王の安全度"""
+        score = 0
+        king_pos = self._find_king_position(board, player)
+        
+        if king_pos:
+            king_row, king_col = king_pos
+            
+            # 王が初期位置近くにいるかチェック
+            if player == 1 and king_row >= 7:  # 先手の王が下段にいる
+                score += 30
+            elif player == 2 and king_row <= 1:  # 後手の王が上段にいる
+                score += 30
+                
+        return score
+        
+    def _evaluate_attack_potential(self, board, player):
+        """攻撃力評価"""
+        score = 0
+        
+        # 飛車・角の働きを評価
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.player == player:
+                    if piece.name in ["rook", "bishop"]:
+                        try:
+                            moves = piece.get_possible_moves(board, (row, col))
+                            score += len(moves) * 3  # 移動可能マス数で評価
+                        except:
+                            continue
+                            
+        return score
+        
+    def _evaluate_piece_coordination(self, board, player):
+        """駒の連携評価"""
+        score = 0
+        
+        # 隣接する味方駒の数をカウント
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.player == player:
+                    adjacent_allies = 0
+                    for dr in [-1, 0, 1]:
+                        for dc in [-1, 0, 1]:
+                            if dr == 0 and dc == 0:
+                                continue
+                            new_row, new_col = row + dr, col + dc
+                            if 0 <= new_row < 9 and 0 <= new_col < 9:
+                                adjacent = board.grid[new_row][new_col]
+                                if adjacent and adjacent.player == player:
+                                    adjacent_allies += 1
+                    score += adjacent_allies * 5
+                    
+        return score
+        
+    def _evaluate_king_activity(self, board, player):
+        """王の活用度（終盤用）"""
+        score = 0
+        king_pos = self._find_king_position(board, player)
+        
+        if king_pos:
+            king_row, king_col = king_pos
+            
+            # 王が中央寄りにいるかチェック（終盤では有利）
+            center_distance = abs(king_row - 4) + abs(king_col - 4)
+            score += max(0, 8 - center_distance) * 10
+            
+        return score
+        
+    def _evaluate_captured_pieces_activity(self, board, player):
+        """持ち駒の活用度"""
+        score = 0
+        
+        # 持ち駒の種類による評価
+        for piece in board.captured_pieces[player]:
+            if piece.name in ["rook", "bishop"]:
+                score += 50  # 大駒は終盤で威力を発揮
+            elif piece.name == "gold":
+                score += 30
+            elif piece.name in ["silver", "knight"]:
+                score += 20
+            else:
+                score += 10
+                
+        return score
+        
+    def _find_king_position(self, board, player):
+        """王の位置を探す"""
+        for row in range(9):
+            for col in range(9):
+                piece = board.grid[row][col]
+                if piece and piece.name == "king" and piece.player == player:
+                    return (row, col)
+        return None
 
 
 class ShogiAI:
-    def __init__(self, board):
+    def __init__(self, board, game_mode="normal"):
         self.board = board
+        self.game_mode = game_mode  # ゲームモードを保存
         self.evaluator = PositionEvaluator()
+        self.searcher = MoveSearcher(self.evaluator)  # アルファベータ対応探索エンジン
+        self.opening_book = OpeningBook()  # 序盤定跡エンジン
+        self.tactics_engine = TacticsEngine(self.evaluator)  # 戦術認識エンジン
+        self.endgame_engine = EndgameEngine(self.evaluator)  # 終盤特化エンジン
+        self.move_count = 0  # 手数カウンター
         
     def make_move(self):
         """AIの手を決定して実行する"""
+        start_time = time.time()
+        max_time = 10.0  # 最大10秒
+        
         # 全ての合法手を列挙
         possible_moves = self._get_all_possible_moves()
         
         if not possible_moves:
             return False  # 合法手がない（詰み）
             
-        # 合法手を評価してベストな手を選ぶ
-        best_move = self._evaluate_moves(possible_moves)
+        # 手数をカウント
+        self.move_count += 1
+        
+        # 通常モードでのみ序盤定跡をチェック（強制実行）
+        if self.game_mode == "normal" and self.move_count <= 12:
+            opening_move = self.opening_book.get_opening_move(self.board, self.move_count)
+            if opening_move:
+                # 定跡手を強制実行（合法性は事前にチェック済み）
+                print(f"定跡手を実行: {opening_move.get('move', '不明')} ({self.move_count}手目)")
+                self._execute_move(opening_move)
+                return True
+        
+        # 時間制限チェック
+        elapsed_time = time.time() - start_time
+        remaining_time = max_time - elapsed_time
+        
+        if remaining_time <= 0.5:  # 残り時間が0.5秒以下の場合は即座に手を選択
+            print(f"時間切れ間近のため高速評価を使用")
+            best_move = self._evaluate_moves_fast(possible_moves)
+        else:
+            # 定跡がない場合、またはendgameモードの場合は通常の評価
+            print(f"残り時間: {remaining_time:.1f}秒で思考開始")
+            best_move = self._evaluate_moves(possible_moves, remaining_time)
         
         # 選んだ手を実行
         self._execute_move(best_move)
+        
+        # 思考時間を表示
+        total_time = time.time() - start_time
+        print(f"思考時間: {total_time:.2f}秒")
+        
+        return True
         
     def _get_all_possible_moves(self):
         """全ての合法手を取得"""
@@ -215,23 +1656,34 @@ class ShogiAI:
         
         return possible_moves
         
-    def _evaluate_moves(self, possible_moves):
-        """手を評価して最良の手を選択（元のコードと同じ戻り値型）"""
-        best_moves = []  # 最高スコアの手のリスト
+    def _evaluate_moves(self, possible_moves, time_limit=10.0):
+        """手を評価して最良の手を選択（ミニマックス探索版）"""
+        # 王手をかけられている場合は従来の高速評価
+        if self.board.in_check:
+            return self._evaluate_moves_fast(possible_moves)
+            
+        # 通常時はミニマックス探索（時間制限付き）
+        best_moves = self.searcher.search_best_move(self.board, possible_moves, time_limit)
+        
+        # 同じスコアの手からランダム選択（既存と同じ）
+        return random.choice(best_moves)
+        
+    def _evaluate_moves_fast(self, possible_moves):
+        """王手時の高速評価（従来の方法）"""
+        best_moves = []
         best_score = float('-inf')
         
         for move in possible_moves:
-            # 新しい評価方法を使用
+            # 従来の評価方法を使用
             score = self._evaluate_move_advanced(move)
             
-            # より良い手が見つかった場合
             if score > best_score:
                 best_score = score
-                best_moves = [move]  # 新しい最高スコアでリストをリセット
+                best_moves = [move]
             elif score == best_score:
-                best_moves.append(move)  # 同じスコアの手を追加
+                best_moves.append(move)
                 
-        return random.choice(best_moves)  # 元のコードと同じ：リストからランダム選択
+        return random.choice(best_moves)
         
     def _evaluate_move_advanced(self, move):
         """改良された手の評価"""
@@ -479,7 +1931,7 @@ class ShogiAI:
                 piece_value = self.evaluator.piece_values[target_piece.name]
                 if target_piece.is_promoted and target_piece.name in self.evaluator.promoted_bonus:
                     piece_value += self.evaluator.promoted_bonus[target_piece.name]
-                score += piece_value
+                score += piece_value * 1.5  # 駒を取る価値を1.5倍に増加
                 
                 # 王を取る手は最高評価
                 if target_piece.name == "king":
@@ -779,11 +2231,11 @@ class ShogiAI:
                     
         # 駒を取られる手（等価交換でない）を減点
         if self._is_bad_trade(move):
-            score -= 10000
+            score -= 500  # 10000から500に減少
             
         # 自分の重要な駒を見捨てる手を減点
         if self._abandons_important_piece(move):
-            score -= 8000
+            score -= 300  # 8000から300に減少
             
         return score
         
@@ -842,7 +2294,7 @@ class ShogiAI:
             target_value = self.evaluator.piece_values[target_piece.name]
             
             # 自分の駒の方が価値が高い場合は悪い交換
-            if moving_value > target_value + 200:  # 200点以上の差があれば悪い交換
+            if moving_value > target_value + 500:  # 200点から500点に変更（より大きな差でのみ悪い交換と判定）
                 return True
                 
         return False
